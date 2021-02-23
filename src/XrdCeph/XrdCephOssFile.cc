@@ -75,6 +75,23 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
   return Read(buff, offset, blen);
 }
 
+ssize_t XrdOssDF::ReadV(XrdOucIOVec *readV, int n)
+{
+   ssize_t nbytes = 0, curCount = 0;
+   for (int i=0; i<n; i++)
+       {curCount = Read((void *)readV[i].data,
+                         (off_t)readV[i].offset,
+                        (size_t)readV[i].size);
+        if (curCount != readV[i].size)
+           {if (curCount < 0) return curCount;
+            return -ESPIPE;
+           }
+        nbytes += curCount;
+       }
+   return nbytes;
+}
+
+
 int XrdCephOssFile::Fstat(struct stat *buff) {
   return ceph_posix_fstat(m_fd, buff);
 }

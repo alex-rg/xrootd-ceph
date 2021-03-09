@@ -75,7 +75,7 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
   return Read(buff, offset, blen);
 }
 
-ssize_t XrdOssDF::ReadV(XrdOucIOVec *readV, int n)
+ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n)
 {
    ssize_t nbytes = 0, curCount = 0;
    for (int i=0; i<n; i++)

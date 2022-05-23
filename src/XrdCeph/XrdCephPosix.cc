@@ -429,10 +429,10 @@ void fillCephFile(const char *path, XrdOucEnv *env, CephFile &file) {
   size_t colonPos = spath.find(':');
   if (std::string::npos == colonPos) {
     // deal with name translation
-    file.name = spath;
+    // translateFileName(file.name, spath);
     fillCephFileParams("", env, file);
   } else {
-    file.name = spath.substr(colonPos+1);
+    // translateFileName(file.name, spath.substr(colonPos+1));
     fillCephFileParams(spath.substr(0, colonPos), env, file);
   }
 }

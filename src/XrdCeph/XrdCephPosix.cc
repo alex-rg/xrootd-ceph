@@ -285,7 +285,6 @@ void dumpClusterInfo() {
     logwrapper((char*)"dumpClusterInfo : %s", ss.str().c_str());
 }
 
-
 /// fills the userId of a ceph file struct from a string and an environment
 /// returns position of first character after the userId
 static int fillCephUserId(const std::string &params, XrdOucEnv *env, CephFile &file) {

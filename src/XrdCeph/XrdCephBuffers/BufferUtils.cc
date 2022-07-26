@@ -47,9 +47,14 @@ Extent Extent::containedExtent(off_t pos, size_t len) const
     // return the subset of input range that is in this extent
     off_t subbeg = std::max(begin(), pos);
     off_t subend = std::min(end(), off_t(pos + len));
-
+    // BUFLOG(subbeg << " " << subbeg << " " << subend - subbeg);
+    if (subbeg > subend) {
+        // no overlap
+        return Extent(0,0); // is 0 good value for the offset ?
+    }
     return Extent(subbeg, subend - subbeg);
 }
+
 Extent Extent::containedExtent(const Extent &rhs) const
 {
     return containedExtent(rhs.begin(), rhs.len());

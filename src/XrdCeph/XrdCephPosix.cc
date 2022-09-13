@@ -701,6 +701,8 @@ int ceph_posix_open(XrdOucEnv* env, const char *pathname, int flags, mode_t mode
  
   bool fileExists = (rc != -ENOENT); //Make clear what condition we are testing
 
+  logwrapper((char*)"Access Mode: %s flags&O_ACCMODE %d ", pathname, flags);
+
   if ((flags&O_ACCMODE) == O_RDONLY) {  // Access mode is READ
 
     if (fileExists) {

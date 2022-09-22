@@ -62,7 +62,8 @@ namespace XrdCephBuffer
          */
 
     public:
-        Extent(off_t offset, size_t len) : m_offset(offset), m_len(len){}
+        constexpr Extent() noexcept : m_offset(0), m_len(0){}
+        constexpr Extent(off_t offset, size_t len) noexcept : m_offset(offset), m_len(len){}
         inline off_t offset() const { return m_offset; }
         inline size_t len() const { return m_len; }
         inline off_t begin() const { return m_offset; } //!< Same as offset, but a bit more stl container like
@@ -78,11 +79,13 @@ namespace XrdCephBuffer
         inline off_t last_pos() const { return m_offset + m_len - 1; } //!< last real position
 
         bool in_extent(off_t pos) const; //!< is this position within the range of this extent
+        inline bool contains(off_t pos) const {return in_extent(pos); } //!< is this position within the range of this extent
         bool allInExtent(off_t pos, size_t len) const;  //!< is all the range in this extent
         bool someInExtent(off_t pos, size_t len) const; //!< is some of the range in this extent
 
         Extent containedExtent(off_t pos, size_t len) const; //!< return the subset of range that is in this extent
         Extent containedExtent(const Extent &in) const;        //!< 
+        inline Extent overlaps(const Extent &in) const{ return containedExtent(in);}
 
         bool operator<(const Extent &rhs) const;
         bool operator==(const Extent &rhs) const;

@@ -14,7 +14,7 @@ using namespace XrdCephBuffer;
 
 bool Extent::in_extent(off_t pos) const
 {
-    return ((pos > begin()) && (pos < end()));
+    return ((pos >= begin()) && (pos < end()));
 }
 
 bool Extent::isContiguous(const Extent &rhs) const

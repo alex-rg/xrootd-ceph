@@ -94,17 +94,17 @@ ssize_t XrdCephOssReadVFile::ReadV(XrdOucIOVec *readV, int rnum) {
   int fd = m_xrdOssDF->getFileDescriptor();
   LOGCEPH("XrdCephOssReadVFile::ReadV: fd: " << fd  << " " << rnum << "\n" );
 
-  //std::stringstream msg_extents; 
-  //msg_extents << "EXTENTS=[";
+  std::stringstream msg_extents; 
+  msg_extents << "EXTENTS={\"fd\":" << fd << ",\"extents\"=[";
 
   ExtentHolder extents(rnum);
   for (int i = 0; i < rnum; i++) {
     extents.push_back(Extent(readV[i].offset, readV[i].size));
-    //msg_extents << "(" << readV[i].offset << "," << readV[i].size << ")," ;
+    msg_extents << "(" << readV[i].offset << "," << readV[i].size << ")," ;
   }
-  //msg_extents << "]";
+  msg_extents << "]";
   //XrdCephEroute.Say(msg_extents.str().c_str()); msg_extents.clear();
-  //LOGCEPH(msg_extents.str());
+  LOGCEPH(msg_extents.str()); 
 
   LOGCEPH("Extents: fd: "<< fd << " "  << extents.size() << " " << extents.len() << " " 
       << extents.begin() << " " << extents.end() << " " << extents.bytesContained() 

@@ -47,8 +47,11 @@
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdOuc/XrdOucName2Name.hh"
 #include "XrdSys/XrdSysPlatform.hh"
+#include "XrdOuc/XrdOucIOVec.hh"
 
 #include "XrdCeph/XrdCephPosix.hh"
+
+typedef std::tuple<librados::AioCompletion*, ceph::bufferlist*, char*> ReadOpData;
 
 /// small structs to store file metadata
 struct CephFile {
@@ -223,6 +226,76 @@ static void logwrapper(char* format, ...) {
   (*g_logfunc)(format, arg);
   va_end(arg);
 }
+
+//class to handle multiple async read requests
+class bulkAioRead {
+  public:
+  bulkAioRead(librados::IoCtx *ct) {
+    context = ct;
+  };
+
+  ~bulkAioRead() {
+    for (ReadOpData i: operations){
+      std::get<0>(i)->release();
+      delete std::get<1>(i);
+    }
+  };
+
+  int addRequest(const char* fname, ssize_t size, off64_t offset, char* out_buf) {
+     librados::AioCompletion* cmpl;
+     ceph::bufferlist* bl;
+     ReadOpData tup;
+
+     cmpl = librados::Rados::aio_create_completion();
+     if (0 == cmpl) {
+       logwrapper((char*)"Can not create completion for read (%lu, %lu)", offset, size);
+       return -1;
+     }
+
+     try {
+       bl = new ceph::bufferlist();
+     } catch (std::bad_alloc&) {
+       logwrapper((char*)"Can not allocate buffer for read (%lu, %lu)", offset, size);
+       cmpl->release();
+       return -1;
+     }
+
+     tup = std::make_tuple(cmpl, bl, out_buf);
+     operations.push_back(tup);
+
+     return context->aio_read(fname, cmpl, bl, size, offset);
+  };
+
+  void wait_for_complete() {
+    for (ReadOpData i: operations) {
+      std::get<0>(i)->wait_for_complete();
+    }
+  };
+
+  ssize_t get_results() {
+    ceph::bufferlist* bl;
+    librados::AioCompletion* cmpl;
+    char *buf;
+    ssize_t res = 0;
+    int rc;
+    for (ReadOpData i: operations) {
+      cmpl = std::get<0>(i);
+      bl = std::get<1>(i);
+      buf = std::get<2>(i);
+      rc = cmpl->get_return_value();
+      if (rc < 0) {
+        return rc;
+      }
+      bl->begin().copy(rc, buf);
+      res += rc;
+    }
+    return res;
+  };
+
+  private:
+  librados::IoCtx* context;
+  std::list<ReadOpData> operations;
+};
 
 /// simple integer parsing, to be replaced by std::stoll when C++11 can be used
 static unsigned long long int stoull(const std::string &s) {
@@ -876,6 +949,91 @@ ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb) {
     ::gettimeofday(&fr->lastAsyncSubmission, nullptr);
     fr->bytesAsyncWritePending+=count;
     return rc;
+  } else {
+    return -EBADF;
+  }
+}
+
+
+ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
+  CephFileRef* fr = getFileRef(fd);
+  if (fr) {
+    // TODO implement proper logging level for this plugin - this should be only debug
+    //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
+    if ((fr->flags & O_WRONLY) != 0) {
+      return -EBADF;
+    }
+
+    const unsigned int block_size = fr->objectSize;
+
+    int rc;
+    ssize_t end_block, req_len, chunk_start, chunk_len, buf_pos, read_bytes;
+    unsigned int start_block;
+    off_t offset;
+    char * fname;
+    char * buf_ptr;
+    ceph::bufferlist bl;
+
+    try {
+      //Extra 18 symbols for stipe object -- 16 digits, dot and null
+      fname = new char[strlen(fr->name.c_str()) + 18];
+    } catch(std::bad_alloc&) {
+      logwrapper( (char*)"Can not allocate data for block filename\n");
+      return -1;
+    }
+
+    librados::IoCtx *ioctx = getIoCtx(*fr);
+    if (0 == ioctx) {
+      errno = EINVAL;
+      return 0;
+    }
+    bulkAioRead readOp = bulkAioRead(ioctx);
+
+    for (int i = 0; i < n; i++) {
+      offset = readV[i].offset;
+      req_len = readV[i].size;
+      start_block = offset / block_size;
+      end_block = (offset + req_len - 1) / block_size;
+      buf_ptr = (char*) readV[i].data;
+      buf_pos = 0;
+
+      while (start_block <= end_block) {
+        sprintf(fname, "%s.%016x", fr->name.c_str(), start_block);
+        chunk_start = offset % block_size;
+        if (req_len < block_size - chunk_start) {
+          chunk_len = req_len;
+        } else {
+          chunk_len = block_size - chunk_start;
+        }
+
+        //logwrapper((char*)"Going to read %s, %lu %lu\n", fname, chunk_len, chunk_start);
+        rc = readOp.addRequest(fname, chunk_len, chunk_start, buf_ptr);
+        if (rc < 0) {
+          logwrapper((char*)"Unable to submit async read request of file %s: rc=%d\n", fname, rc);
+          delete[] fname;
+          return rc;
+        }
+        buf_pos += chunk_len;
+        if (buf_pos > readV[i].size) {
+          logwrapper((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu)\n", buf_pos, readV[i].offset, readV[i].size);
+          delete[] fname;
+        }
+        buf_ptr += chunk_len;
+
+        start_block++;
+        offset = start_block*block_size;
+        req_len = req_len - chunk_len;
+      }
+    }
+
+    read_bytes = 0;
+    readOp.wait_for_complete();
+    read_bytes = readOp.get_results();
+    delete [] fname;
+    XrdSysMutexHelper lock(fr->statsMutex);
+    //Should we consider readv as a single operation?
+    fr->rdcount += n;
+    return read_bytes;
   } else {
     return -EBADF;
   }

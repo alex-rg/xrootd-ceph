@@ -47,6 +47,7 @@
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdOuc/XrdOucName2Name.hh"
 #include "XrdSys/XrdSysPlatform.hh"
+#include "XrdOuc/XrdOucIOVec.hh"
 
 #include "XrdCeph/XrdCephPosix.hh"
 
@@ -876,6 +877,93 @@ ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb) {
     ::gettimeofday(&fr->lastAsyncSubmission, nullptr);
     fr->bytesAsyncWritePending+=count;
     return rc;
+  } else {
+    return -EBADF;
+  }
+}
+
+class bulkAioRead {
+  public:
+  bulkAioRead(libradosstriper::RadosStriper *rs, librados::Rados *cl) {
+    striper = rs;
+    cluster = cl;
+    cnt = 0;
+  };
+
+  ~bulkAioRead() {
+    for (auto i = 0; i < cnt; i++){
+      completions[i]->release();
+      delete buffers[i];
+    }
+  };
+
+  int addRequest(const char* fname, ssize_t size, off64_t offset) {
+     try {
+       completions.push_back(cluster->aio_create_completion());
+       buffers.push_back(new ceph::bufferlist);
+     } catch(std::bad_alloc&) {
+       return -100;
+     }
+     cnt++;
+     return striper->aio_read(fname, completions[cnt-1], buffers[cnt-1], size, offset);
+  };
+
+  void wait_for_complete() {
+    for (auto i = 0; i < cnt; i++) {
+      completions[i]->wait_for_complete();
+    }
+  };
+
+  ssize_t get_results(XrdOucIOVec *readV) {
+    ssize_t res = 0;
+    int rc;
+    for (auto i = 0; i < cnt; i++) {
+      rc = completions[i]->get_return_value();
+      if (rc < 0) {
+        return rc;
+      }
+      buffers[i]->begin().copy(rc, (char*)readV[i].data);
+      res += rc;
+    }
+    return res;
+  };
+  private:
+  libradosstriper::RadosStriper *striper;
+  librados::Rados* cluster;
+  std::vector<librados::AioCompletion*> completions; 
+  std::vector<ceph::bufferlist*> buffers;
+  int cnt;
+};
+
+ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
+  CephFileRef* fr = getFileRef(fd);
+  ssize_t read_bytes;
+  if (fr) {
+    // TODO implement proper logging level for this plugin - this should be only debug
+    //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
+    if ((fr->flags & O_WRONLY) != 0) {
+      return -EBADF;
+    }
+    int cephPoolIdx = getCephPoolIdxAndIncrease();
+    librados::Rados* cluster = checkAndCreateCluster(cephPoolIdx);
+    libradosstriper::RadosStriper *striper = getRadosStriper(*fr);
+    if (0 == striper) {
+      return -EINVAL;
+    }
+    bulkAioRead readOp = bulkAioRead(striper, cluster);
+
+    int rc;
+    for (auto i = 0; i < n; i++) {
+      rc = readOp.addRequest(fr->name.c_str(), readV[i].size, readV[i].offset);
+      if (rc != 0) {
+        return rc;
+      }
+    }
+    readOp.wait_for_complete();
+
+    read_bytes = readOp.get_results(readV);
+    printf("Read Bytes = %ld\n", read_bytes);
+    return read_bytes;
   } else {
     return -EBADF;
   }

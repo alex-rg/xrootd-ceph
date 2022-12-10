@@ -25,6 +25,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <map>
+#include <list>
+
 #include "XrdCeph/XrdCephPosix.hh"
 #include "XrdOuc/XrdOucEnv.hh"
 #include "XrdSys/XrdSysError.hh"
@@ -35,6 +38,60 @@
 #include "XrdCeph/XrdCephOss.hh"
 
 extern XrdSysError XrdCephEroute;
+
+
+struct DataChunk
+    {
+    int start;
+    int len;
+    int orig_block;
+    DataChunk(int st, int ln, int ob)
+        {
+        start = st;
+        len = ln;
+        orig_block = ob;
+        };
+    };
+
+struct ReadVBuffer
+    {
+    char *ptr;
+    ReadVBuffer(int size)
+        {
+        ptr = new char[size];
+        }
+
+    ~ReadVBuffer()
+        {
+        delete[] ptr;
+        }
+    };
+
+struct DataPointers
+    {
+    char** pointers;
+    DataPointers(int size, XrdOucIOVec *readV)
+        {
+        pointers = new char*[size];
+        for (int i=0; i<size; i++)
+            {
+            pointers[i] = readV[i].data;
+            }
+        }
+    ~DataPointers()
+        {
+        delete[] pointers;
+        }
+
+    char*& operator[] (int idx)
+        {
+        return pointers[idx];
+        }
+    };
+
+
+typedef std::map<  int, std::list< DataChunk >  > BlockDict;
+typedef std::list< DataChunk > VreadChunks;
 
 XrdCephOssFile::XrdCephOssFile(XrdCephOss *cephOss) : m_fd(-1), m_cephOss(cephOss) {}
 
@@ -59,7 +116,7 @@ ssize_t XrdCephOssFile::Read(off_t offset, size_t blen) {
 }
 
 ssize_t XrdCephOssFile::Read(void *buff, off_t offset, size_t blen) {
-  return ceph_posix_pread(m_fd, buff, blen, offset);
+  return ceph_async_read(m_fd, buff, blen, offset);
 }
 
 static void aioReadCallback(XrdSfsAio *aiop, size_t rc) {
@@ -75,20 +132,86 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
   return Read(buff, offset, blen);
 }
 
-ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n)
-{
-   ssize_t nbytes = 0, curCount = 0;
-   for (int i=0; i<n; i++)
-       {curCount = Read((void *)readV[i].data,
-                         (off_t)readV[i].offset,
-                        (size_t)readV[i].size);
-        if (curCount != readV[i].size)
-           {if (curCount < 0) return curCount;
-            return -ESPIPE;
-           }
-        nbytes += curCount;
-       }
-   return nbytes;
+ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
+    /*
+    To allow effective readv from ceph, we are going to read data
+    from storage in blocks of the given size, and then extract chunks
+    requested in readv from these blocks.
+    */
+    //FIXME: use value from config
+    const unsigned int block_size = 16*1024*1024;
+    unsigned int idx = 0;
+    BlockDict blocks;
+    /*
+    Data from ceph is going to be read in blocks of size block_size.
+    Here we analize what data is to be read. The results are stored
+    in BlockDict map in the following form:
+    <block_number> : <DataChunk>
+    Where <DataChunk> is the structure containing information of the
+    start start of useful data in the block, its length and original
+    block number (i.e. number in the readv request).
+    */
+    for (int i = 0; i < n; i++)
+        {
+        ssize_t start_block, end_block;
+        off_t offset = readV[i].offset;
+        ssize_t len = readV[i].size;
+        start_block = offset / block_size;
+        end_block = (offset + len - 1) / block_size;
+        while (start_block <= end_block)
+            {
+            ssize_t chunk_start, chunk_len;
+            chunk_start = offset % block_size;
+            if (len < block_size - chunk_start)
+                chunk_len = len;
+            else
+                chunk_len = block_size - chunk_start;
+            try 
+                {
+                blocks.at(start_block).push_back(DataChunk(chunk_start, chunk_len, idx));
+                } 
+            catch (std::out_of_range&)
+                {
+                blocks[start_block] =  { DataChunk(chunk_start, chunk_len, idx) };
+                }
+            start_block++;
+            offset = start_block*block_size;
+            len = len - chunk_len;
+            }
+        idx++;
+        }
+    
+    DataPointers pointers = DataPointers(n, readV);
+    ReadVBuffer buf = ReadVBuffer(block_size);
+    char * buf_ptr;
+    ssize_t requested_data_read = 0;
+    
+    /*
+    Read the blocks and place their chunks into corresponding buffers.
+    */
+    for (auto i = blocks.begin(); i != blocks.end(); i++)
+        {
+        ssize_t data_read = ceph_async_read(m_fd, (void*)buf.ptr, (size_t)block_size, (off_t)block_size*(i->first));
+        //FIXME: we should not request data past end of file.
+        if (data_read < 0)
+            {
+            return data_read;
+            }
+        for (auto j = i->second.begin(); j != i->second.end(); j++)
+            {
+            if (j->start + j->len > data_read)
+                {
+                return -ESPIPE;
+                }
+            buf_ptr = buf.ptr;
+            buf_ptr += j->start;
+            memcpy(pointers[j->orig_block], buf_ptr, j->len);
+            pointers[j->orig_block] += j->len;
+            requested_data_read += j->len;
+            }
+        }
+    
+    return requested_data_read;
 }
 
 

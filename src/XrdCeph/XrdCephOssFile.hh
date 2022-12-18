@@ -28,6 +28,8 @@
 #include "XrdOss/XrdOss.hh"
 #include "XrdCeph/XrdCephOss.hh"
 
+#include <vector>
+
 //------------------------------------------------------------------------------
 //! This class implements XrdOssDF interface for usage with a CEPH storage.
 //!
@@ -70,6 +72,7 @@ public:
 
 private:
 
+  virtual ssize_t process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV);
   int m_fd;
   XrdCephOss *m_cephOss;
 

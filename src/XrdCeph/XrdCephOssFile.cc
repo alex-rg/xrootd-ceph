@@ -25,6 +25,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <vector>
+
 #include "XrdCeph/XrdCephPosix.hh"
 #include "XrdOuc/XrdOucEnv.hh"
 #include "XrdSys/XrdSysError.hh"
@@ -35,6 +37,8 @@
 #include "XrdCeph/XrdCephOss.hh"
 
 extern XrdSysError XrdCephEroute;
+
+#define READV_BUFFER_SIZE 16777216
 
 XrdCephOssFile::XrdCephOssFile(XrdCephOss *cephOss) : m_fd(-1), m_cephOss(cephOss) {}
 
@@ -75,20 +79,86 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
   return Read(buff, offset, blen);
 }
 
-ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n)
-{
-   ssize_t nbytes = 0, curCount = 0;
-   for (int i=0; i<n; i++)
-       {curCount = Read((void *)readV[i].data,
-                         (off_t)readV[i].offset,
-                        (size_t)readV[i].size);
-        if (curCount != readV[i].size)
-           {if (curCount < 0) return curCount;
-            return -ESPIPE;
-           }
-        nbytes += curCount;
-       }
-   return nbytes;
+ssize_t XrdCephOssFile::process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV) {
+  char * buf = new char[READV_BUFFER_SIZE];
+  char *ptr;
+  ssize_t data_read, real_data_read;
+  data_read = 0;
+  printf("processing block %lu %lu\n", block_start, block_len);
+  if (chunks_to_read.size() == 1) {
+    int idx = chunks_to_read[0];
+    data_read = ceph_async_read(m_fd, (void*)readV[idx].data, readV[idx].size, readV[idx].offset);
+  } else {
+    real_data_read = ceph_async_read(m_fd, (void*) buf, block_len, block_start);
+    printf("read %ld bytes\n", real_data_read);
+    if (real_data_read < (ssize_t)block_len) {
+      //log("Requested %lu bytes, got %lu!\n", block_len, data_read);
+      return -data_read;
+    }
+    for (int i: chunks_to_read) {
+      ptr = buf;
+      ptr += readV[i].offset - block_start;
+      memcpy(readV[i].data, ptr, readV[i].size);
+      data_read += readV[i].size;
+      printf("Extracting block %d, data read %ld\n",i,  data_read);
+    }
+  }
+  delete[] buf;
+  printf("returning  %ld\n", data_read);
+  return data_read;
+}
+
+ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
+  ssize_t data_read, chunks_data_read, block_start, block_len, tlen;
+  std::vector<int> chunks_to_read;
+  block_start = -1;
+  block_len = 0;
+  data_read = 0;
+  printf("starting readv\n");
+  for (int i = 0; i < n; i++) {
+    printf("start: %lu, len: %lu, rstart: %lld, rlen: %d\n", block_start, block_len, readV[i].offset, readV[i].size);
+    if (block_start > 0) {
+      tlen = readV[i].offset + readV[i].size - block_start;
+      if (tlen > READV_BUFFER_SIZE || block_len > READV_BUFFER_SIZE || readV[i].offset < block_start) {
+        chunks_data_read = process_block(block_start, block_len, chunks_to_read, readV);
+        if (chunks_data_read > 0) {
+          data_read += chunks_data_read;
+        } else {
+          //log("Error while reading block at %ul, got %d\n", block_start, chunks_data_read);
+          printf("Emergency exit, %ld bytes\n", chunks_data_read);
+          return chunks_data_read;
+        }
+        block_start = -1;
+        block_len = 0;
+        tlen = readV[i].offset + readV[i].size - block_start;
+        chunks_to_read.clear();
+      }
+      chunks_to_read.push_back(i);
+      if (block_start < 0) {
+        block_start = readV[i].offset;
+      }
+      if (tlen > block_len) {
+        block_len = tlen;
+      }
+    } else {
+      block_start = readV[i].offset;
+      block_len = readV[i].size;
+      chunks_to_read.push_back(i);
+    }
+  }
+  if (block_len > 0) {
+    chunks_data_read = process_block(block_start, block_len, chunks_to_read, readV);
+    if (chunks_data_read > 0) {
+      data_read += chunks_data_read;
+    } else {
+      //log("Error while reading block at %ul, got %d\n", block_start, chunks_data_read);
+      printf("Emergency exit, %ld bytes\n", chunks_data_read);
+      return chunks_data_read;
+    }
+  }
+  printf("All read %ld bytes\n", data_read);
+
+  return data_read;
 }
 
 

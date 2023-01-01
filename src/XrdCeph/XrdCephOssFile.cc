@@ -38,7 +38,7 @@
 
 extern XrdSysError XrdCephEroute;
 
-#define READV_BUFFER_SIZE 16777216
+#define READV_BUFFER_SIZE 4194304
 
 XrdCephOssFile::XrdCephOssFile(XrdCephOss *cephOss) : m_fd(-1), m_cephOss(cephOss) {}
 

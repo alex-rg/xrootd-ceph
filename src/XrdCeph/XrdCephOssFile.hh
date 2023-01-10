@@ -30,6 +30,8 @@
 
 #include <vector>
 
+#define DEF_READV_BUFFER_SIZE 4194304
+
 //------------------------------------------------------------------------------
 //! This class implements XrdOssDF interface for usage with a CEPH storage.
 //!

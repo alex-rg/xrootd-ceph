@@ -94,6 +94,7 @@ XrdCephOss::~XrdCephOss() {
 
 // declared and used in XrdCephPosix.cc
 extern unsigned int g_maxCephPoolIdx;
+extern unsigned int g_ReadVBufSize;
 int XrdCephOss::Configure(const char *configfn, XrdSysError &Eroute) {
    int NoGo = 0;
    XrdOucEnv myEnv;
@@ -125,6 +126,23 @@ int XrdCephOss::Configure(const char *configfn, XrdSysError &Eroute) {
            return 1;
          }
        }
+
+       if (!strncmp(var, "ceph.readvbufsize", 17)) {
+         var = Config.GetWord();
+         if (var) {
+           unsigned long value = strtoul(var,0, 10);
+           if (value > 0) {
+             g_ReadVBufSize = value;
+           } else {
+             Eroute.Emsg("Config", "Invalid value for ceph.readvbufsize in config file (must be > 0)", configfn, var);
+             return 1;
+           }
+         } else {
+           Eroute.Emsg("Config", "Missing value for ceph.readvbufsize in config file", configfn);
+           return 1;
+         }
+       }
+
        if (!strncmp(var, "ceph.namelib", 12)) {
          var = Config.GetWord();
          if (var) {

@@ -38,7 +38,7 @@
 
 extern XrdSysError XrdCephEroute;
 
-#define READV_BUFFER_SIZE 4194304
+unsigned int g_ReadVBufSize = DEF_READV_BUFFER_SIZE;
 
 XrdCephOssFile::XrdCephOssFile(XrdCephOss *cephOss) : m_fd(-1), m_cephOss(cephOss) {}
 
@@ -88,7 +88,7 @@ ssize_t XrdCephOssFile::process_block(off_t block_start, size_t block_len, std::
     data_read = ceph_async_read(m_fd, (void*)readV[idx].data, readV[idx].size, readV[idx].offset);
   } else {
     try {
-      buf = new char[READV_BUFFER_SIZE];
+      buf = new char[g_ReadVBufSize];
     } catch(std::bad_alloc&) {
        //FIXME: use log function
        fprintf(stderr, "Can not allocate memory for readv buffer! Exiting\n");
@@ -145,7 +145,7 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
     new_block_len = new_end - new_block_start + 1;
 
     //fprintf(stderr, "block_start: %ld, block_len: %ld, new_block_start: %ld, new_block_len: %ld , offset: %lld, size: %d, i: %d\n", block_start, block_len, new_block_start, new_block_len, readV[i].offset, readV[i].size, i);
-    if (new_block_len > READV_BUFFER_SIZE && block_len > 0) {
+    if (new_block_len > g_ReadVBufSize && block_len > 0) {
         block_data_read = process_block(block_start, block_len, chunks_to_read, readV);
         if (block_data_read > 0) {
           data_read += block_data_read;

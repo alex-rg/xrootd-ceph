@@ -90,22 +90,20 @@ ssize_t XrdCephOssFile::process_block(off_t block_start, size_t block_len, std::
     try {
       buf = new char[g_ReadVBufSize];
     } catch(std::bad_alloc&) {
-       //FIXME: use log function
-       fprintf(stderr, "Can not allocate memory for readv buffer! Exiting\n");
+       XrdCephEroute.Say("Can not allocate memory for readv buffer! Exiting\n");
        return -ENOMEM;
     }
-    //fprintf(stderr, "Going to read %ld,%ld \n", block_len, block_start);
     real_data_read = ceph_async_read(m_fd, (void*) buf, block_len, block_start);
     if (real_data_read < (ssize_t)block_len) {
-      //FIXME: use log function
-      fprintf(stderr, "Expected %lu bytes, got %ld. Exiting\n", block_len, real_data_read);
+      char errmsg[100];
+      snprintf(errmsg, 100, "Expected %lu bytes, got %ld. Exiting\n", block_len, real_data_read);
+      XrdCephEroute.Say(errmsg);
       delete[] buf;
       return -ESPIPE;
     }
     for (int i: chunks_to_read) {
       ptr = buf;
       ptr += readV[i].offset - block_start;
-      //fprintf(stderr, "Extracting chunk %d, ptr_pos: %lld, chunks size: %d, offset: %lld, data_read: %ld\n", i, readV[i].offset - block_start, readV[i].size, readV[i].offset, real_data_read);
       memcpy(readV[i].data, ptr, readV[i].size);
       data_read += readV[i].size;
     }
@@ -122,7 +120,6 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
   block_start = -1;
   block_len = 0;
   data_read = 0;
-  //printf("Readv started\n");
   for (int i = 0; i < n; i++) {
     //Calculate new block borders, after a chunk will be added to the block
     //To do so first calculate end of current block and end of chunk
@@ -144,15 +141,15 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
     //Now we know updated block's start and end, let's update its lengt
     new_block_len = new_end - new_block_start + 1;
 
-    //fprintf(stderr, "block_start: %ld, block_len: %ld, new_block_start: %ld, new_block_len: %ld , offset: %lld, size: %d, i: %d\n", block_start, block_len, new_block_start, new_block_len, readV[i].offset, readV[i].size, i);
     if (new_block_len > g_ReadVBufSize && block_len > 0) {
         block_data_read = process_block(block_start, block_len, chunks_to_read, readV);
         if (block_data_read > 0) {
           data_read += block_data_read;
           ceph_read_count++;
         } else {
-          //FIXME: use log function
-          fprintf(stderr, "Error while reading block at %ld, got %ld\n", block_start, block_data_read);
+          char errmsg[100];
+          snprintf(errmsg, 100, "Error while reading block at %ld, got %ld\n", block_start, block_data_read);
+          XrdCephEroute.Say(errmsg);
           return block_data_read;
         }
         chunks_to_read.clear();
@@ -172,13 +169,12 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
       data_read += block_data_read;
       ceph_read_count++;
     } else {
-      //FIXME: use log function
-      fprintf(stderr, "Error while reading block at %ld, got %ld\n", block_start, block_data_read);
+      char errmsg[100];
+      snprintf(errmsg, 100, "Error while reading block at %ld, got %ld\n", block_start, block_data_read);
+      XrdCephEroute.Say(errmsg);
       return block_data_read;
     }
   }
-  //FIXME: use log function
-  fprintf(stderr, "%d reads issued for %d blocks\n", ceph_read_count, n);
 
   return data_read;
 }

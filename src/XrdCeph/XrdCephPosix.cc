@@ -249,7 +249,7 @@ class bulkAioRead {
      cmpl = librados::Rados::aio_create_completion();
      if (0 == cmpl) {
        logwrapper((char*)"Can not create completion for read (%lu, %lu)", offset, size);
-       return -1;
+       return -ENOMEM;
      }
 
      try {
@@ -257,7 +257,7 @@ class bulkAioRead {
      } catch (std::bad_alloc&) {
        logwrapper((char*)"Can not allocate buffer for read (%lu, %lu)", offset, size);
        cmpl->release();
-       return -1;
+       return -ENOMEM;
      }
 
      tup = std::make_tuple(cmpl, bl, out_buf);
@@ -983,14 +983,13 @@ ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset)  {
       fname = new char[strlen(fr->name.c_str()) + 18];
     } catch(std::bad_alloc&) {
       logwrapper( (char*)"Can not allocate data for block filename\n");
-      return -1;
+      return -ENOMEM;
     }
 
     librados::IoCtx *ioctx = getIoCtx(*fr);
     if (0 == ioctx) {
-      errno = EINVAL;
-      delete[] fname;
-      return 0;
+      logwrapper( (char*)"Can not ioctx context for readv\n");
+      return -EINVAL;
     }
     bulkAioRead readOp = bulkAioRead(ioctx);
 
@@ -1019,6 +1018,7 @@ ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset)  {
       if (buf_pos > blen) {
         logwrapper((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu)\n", buf_pos, offset, blen);
         delete[] fname;
+        return -EINVAL;
       }
       buf_ptr += chunk_len;
 

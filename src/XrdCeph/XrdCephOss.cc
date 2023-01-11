@@ -66,6 +66,7 @@ static void logwrapper(char *format, va_list argp) {
 /// populated in case of ceph.namelib entry in the config file
 /// used in XrdCephPosix
 extern XrdOucName2Name *g_namelib;
+extern unsigned int g_ReadVBufSize;
 
 extern "C"
 {
@@ -135,6 +136,23 @@ int XrdCephOss::Configure(const char *configfn, XrdSysError &Eroute) {
            return 1;
          }
        }
+
+       if (!strncmp(var, "ceph.readvbufsize", 17)) {
+         var = Config.GetWord();
+         if (var) {
+           unsigned long value = strtoul(var,0, 10);
+           if (value > 0) {
+             g_ReadVBufSize = value;
+           } else {
+             Eroute.Emsg("Config", "Invalid value for ceph.readvbufsize in config file (must be > 0)", configfn, var);
+             return 1;
+           }
+         } else {
+           Eroute.Emsg("Config", "Missing value for ceph.readvbufsize in config file", configfn);
+           return 1;
+         }
+       }
+
        if (!strncmp(var, "ceph.namelib", 12)) {
          var = Config.GetWord();
          if (var) {

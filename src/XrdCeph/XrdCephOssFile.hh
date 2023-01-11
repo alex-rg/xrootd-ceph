@@ -28,6 +28,8 @@
 #include "XrdOss/XrdOss.hh"
 #include "XrdCeph/XrdCephOss.hh"
 
+#include <vector>
+
 //------------------------------------------------------------------------------
 //! This class implements XrdOssDF interface for usage with a CEPH storage.
 //!
@@ -60,6 +62,7 @@ public:
   virtual ssize_t Read(off_t offset, size_t blen);
   virtual ssize_t Read(void *buff, off_t offset, size_t blen);
   virtual int     Read(XrdSfsAio *aoip);
+  virtual ssize_t ReadV(XrdOucIOVec *readV, int n);
   virtual ssize_t ReadRaw(void *, off_t, size_t);
   virtual int Fstat(struct stat *buff);
   virtual ssize_t Write(const void *buff, off_t offset, size_t blen);
@@ -69,6 +72,7 @@ public:
 
 private:
 
+  virtual ssize_t process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV);
   int m_fd;
   XrdCephOss *m_cephOss;
 

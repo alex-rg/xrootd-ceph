@@ -34,6 +34,7 @@
 #include <dirent.h>
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysXAttr.hh>
+#include "XrdOuc/XrdOucIOVec.hh"
 
 class XrdSfsAio;
 typedef void(AioCB)(XrdSfsAio*, size_t);
@@ -48,6 +49,7 @@ off64_t ceph_posix_lseek64(int fd, off64_t offset, int whence);
 ssize_t ceph_posix_write(int fd, const void *buf, size_t count);
 ssize_t ceph_posix_pwrite(int fd, const void *buf, size_t count, off64_t offset);
 ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb);
+ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset);
 ssize_t ceph_posix_read(int fd, void *buf, size_t count);
 ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset);
 ssize_t ceph_aio_read(int fd, XrdSfsAio *aiop, AioCB *cb);

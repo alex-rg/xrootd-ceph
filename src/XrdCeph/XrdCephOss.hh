@@ -49,6 +49,8 @@
 //! have a default and they are different, the behavior is not defined.
 //! In case one of the two only has a default, it will be applied for both plugins.
 //------------------------------------------------------------------------------
+//
+#define DEF_READV_BUFFER_SIZE 4194304
 
 class XrdCephOss : public XrdOss {
 public:

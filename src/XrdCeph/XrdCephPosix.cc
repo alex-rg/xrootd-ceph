@@ -41,7 +41,6 @@
 #include <sstream>
 #include <sys/xattr.h>
 #include <time.h>
-#include <chrono>
 #include <limits>
 #include <pthread.h>
 #include "XrdSfs/XrdSfsAio.hh"

@@ -78,26 +78,19 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
 }
 
 
-ssize_t XrdCephOssFile::process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV) {
-  char *ptr, *buf;
+ssize_t XrdCephOssFile::process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV, char* buf) {
+  char *ptr;
   ssize_t data_read, real_data_read;
   data_read = 0;
   if (chunks_to_read.size() == 1) {
     int idx = chunks_to_read[0];
     data_read = ceph_async_read(m_fd, (void*)readV[idx].data, readV[idx].size, readV[idx].offset);
   } else {
-    try {
-      buf = new char[g_ReadVBufSize];
-    } catch(std::bad_alloc&) {
-       XrdCephEroute.Say("Can not allocate memory for readv buffer! Exiting\n");
-       return -ENOMEM;
-    }
     real_data_read = ceph_async_read(m_fd, (void*) buf, block_len, block_start);
     if (real_data_read < (ssize_t)block_len) {
       char errmsg[100];
       snprintf(errmsg, 100, "Expected %lu bytes, got %ld. Exiting\n", block_len, real_data_read);
       XrdCephEroute.Say(errmsg);
-      delete[] buf;
       return -ESPIPE;
     }
     for (int i: chunks_to_read) {
@@ -106,7 +99,6 @@ ssize_t XrdCephOssFile::process_block(off_t block_start, size_t block_len, std::
       memcpy(readV[i].data, ptr, readV[i].size);
       data_read += readV[i].size;
     }
-    delete[] buf;
   }
   return data_read;
 }
@@ -119,6 +111,16 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
   block_start = -1;
   block_len = 0;
   data_read = 0;
+  char *buf;
+
+  //Allocate buffer
+  try {
+    buf = new char[g_ReadVBufSize];
+  } catch(std::bad_alloc&) {
+     XrdCephEroute.Say("Can not allocate memory for readv buffer! Exiting\n");
+     return -ENOMEM;
+  }
+
   for (int i = 0; i < n; i++) {
     //Calculate new block borders, after a chunk will be added to the block
     //To do so first calculate end of current block and end of chunk
@@ -141,7 +143,7 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
     new_block_len = new_end - new_block_start + 1;
 
     if (new_block_len > g_ReadVBufSize && block_len > 0) {
-        block_data_read = process_block(block_start, block_len, chunks_to_read, readV);
+        block_data_read = process_block(block_start, block_len, chunks_to_read, readV, buf);
         if (block_data_read > 0) {
           data_read += block_data_read;
           ceph_read_count++;
@@ -149,6 +151,7 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
           char errmsg[100];
           snprintf(errmsg, 100, "Error while reading block at %ld, got %ld\n", block_start, block_data_read);
           XrdCephEroute.Say(errmsg);
+          delete[] buf;
           return block_data_read;
         }
         chunks_to_read.clear();
@@ -163,7 +166,7 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
 
   //Extract chunks from the last block
   if (chunks_to_read.size() > 0) {
-    block_data_read = process_block(block_start, block_len, chunks_to_read, readV);
+    block_data_read = process_block(block_start, block_len, chunks_to_read, readV, buf);
     if (block_data_read > 0) {
       data_read += block_data_read;
       ceph_read_count++;
@@ -171,10 +174,12 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
       char errmsg[100];
       snprintf(errmsg, 100, "Error while reading block at %ld, got %ld\n", block_start, block_data_read);
       XrdCephEroute.Say(errmsg);
+      delete[] buf;
       return block_data_read;
     }
   }
 
+  delete[] buf;
   return data_read;
 }
 

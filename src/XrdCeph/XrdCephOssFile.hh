@@ -72,7 +72,7 @@ public:
 
 private:
 
-  virtual ssize_t process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV);
+  virtual ssize_t process_block(off_t block_start, size_t block_len, std::vector<int> chunks_to_read, XrdOucIOVec *readV, char* buf);
   int m_fd;
   XrdCephOss *m_cephOss;
 

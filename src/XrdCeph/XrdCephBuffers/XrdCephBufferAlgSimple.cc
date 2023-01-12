@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <iostream>
+#include <thread>
 
 #include "XrdSfs/XrdSfsAio.hh"
 
@@ -78,7 +79,9 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
     // Set a lock for any attempt at a simultaneous operation
     // Use recursive, as flushCache also calls the lock and don't want to deadlock
     // No call to flushCache should happen in a read, but be consistent
+    // BUFLOG("XrdCephBufferAlgSimple::read: preLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << offset << " " << blen);
     const std::lock_guard<std::recursive_mutex> lock(m_data_mutex); // 
+    // BUFLOG("XrdCephBufferAlgSimple::read: postLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << offset << " " << blen);
 
     //BUFLOG("XrdCephBufferAlgSimple::read: " << offset << " " << blen);
     if (blen == 0) return 0;
@@ -124,6 +127,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
          * 
          */
         if (loadCache) {
+            // BUFLOG("XrdCephBufferAlgSimple::read: preLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << "Filling the cache");
             m_bufferdata->invalidate();
             rc = m_cephio->read(offset + offsetDelta, m_bufferdata->capacity()); // fill the cache
             //BUFLOG("LoadCache ReadToCache: " << rc << " " << offset + offsetDelta << " " << m_bufferdata->capacity() );

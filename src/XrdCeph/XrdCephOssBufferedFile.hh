@@ -36,7 +36,8 @@
 #include <memory>
 #include <chrono>
 #include <atomic>
-
+#include <map>
+#include <mutex>
 
 //------------------------------------------------------------------------------
 //! Decorator class XrdCephOssBufferedFile designed to wrap XrdCephOssFile
@@ -68,6 +69,10 @@ protected:
   XrdCephOss *m_cephoss  = nullptr;
   XrdCephOssFile * m_xrdOssDF = nullptr; // holder of the XrdCephOssFile instance
   std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> m_bufferAlg;
+  std::map<size_t, std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> > m_bufferReadAlgs;
+  std::mutex m_buf_mutex; // any data access method on the buffer will use this
+
+
 
   int m_maxBufferRetries {5}; //! How many times to retry a ready from a buffer with EBUSY errors 
   int m_maxBufferRetrySleepTime_ms; //! number of ms to sleep if a retry is requested 

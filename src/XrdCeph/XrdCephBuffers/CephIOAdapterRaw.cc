@@ -78,8 +78,8 @@ ssize_t CephIOAdapterRaw::read(off64_t offset, size_t count) {
     m_stats_read_bytes.fetch_add(rc);
     ++m_stats_read_req;
 
-    BUFLOG("CephIOAdapterRaw::read fd:" << m_fd << " " << rc << " " << offset
-             << " " << count << " " << rc << " " << int_ms.count() );
+    // BUFLOG("CephIOAdapterRaw::read fd:" << m_fd << " " << rc << " " << offset
+    //          << " " << count << " " << rc << " " << int_ms.count() );
 
     if (rc>=0) {
       m_bufferdata->setLength(rc);

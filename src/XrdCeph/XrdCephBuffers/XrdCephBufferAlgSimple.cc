@@ -139,7 +139,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
             // BUFLOG("XrdCephBufferAlgSimple::read: preLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << "Filling the cache");
             m_bufferdata->invalidate();
             rc = m_cephio->read(offset + offsetDelta, m_bufferdata->capacity()); // fill the cache
-            BUFLOG("LoadCache ReadToCache: " << rc << " " << offset + offsetDelta << " " << m_bufferdata->capacity() );
+            // BUFLOG("LoadCache ReadToCache: " << rc << " " << offset + offsetDelta << " " << m_bufferdata->capacity() );
             if (rc < 0) {
                 BUFLOG("LoadCache Error: " << rc);
                 return rc;// TODO return correct errors

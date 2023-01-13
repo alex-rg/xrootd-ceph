@@ -132,6 +132,9 @@ XrdSysMutex g_fd_mutex;
 /// mutex protecting initialization of ceph clusters
 XrdSysMutex g_init_mutex;
 
+//JW Counter for number of times a given cluster is resolved.
+std::map<unsigned int, unsigned long long> g_idxCntr;
+
 /// Accessor to next ceph pool index
 /// Note that this is not thread safe, but we do not care
 /// as we only want a rough load balancing
@@ -155,6 +158,8 @@ unsigned int getCephPoolIdxAndIncrease() {
     nextValue = 0;
   }
   g_cephPoolIdx = nextValue;
+  // JW logging of accesses:
+  ++g_idxCntr[res];
   return res;
 }
 
@@ -253,6 +258,31 @@ static unsigned int stoui(const std::string &s) {
     throw std::out_of_range(s);
   }
   return (unsigned int)res;
+}
+
+void dumpClusterInfo() {
+  //JW
+  // log the current state of the cluster:
+  // don't want to lock here, so the numbers may not be 100% self-consistent
+  int n_cluster = g_cluster.size();
+  int n_ioCtx = g_ioCtx.size();
+  int n_filesOpenForWrite = g_filesOpenForWrite.size();
+  int n_fds = g_fds.size(); 
+  int n_stripers = g_radosStripers.size(); 
+  int n_stripers_pool = 0;
+  for (size_t i = 0; i < g_radosStripers.size(); ++i) {
+    n_stripers_pool += g_radosStripers.at(i).size();
+  }
+  std::stringstream ss;
+  ss << "Counts: " << n_cluster << " " << n_ioCtx << " " << n_filesOpenForWrite << " " 
+     << n_fds << " " << n_stripers << " " << n_stripers_pool << " " << n_stripers_pool 
+     << " CountsbyCluster: [";
+  for (const auto& el : g_idxCntr) {
+    ss << el.first << ":" << el.second << ", " ;
+  } // it
+  ss<< "], ";
+
+    logwrapper((char*)"dumpClusterInfo : %s", ss.str().c_str());
 }
 
 
@@ -661,18 +691,16 @@ int ceph_posix_open(XrdOucEnv* env, const char *pathname, int flags, mode_t mode
 
   struct stat buf;
   libradosstriper::RadosStriper *striper = getRadosStriper(fr); //Get a handle to the RADOS striper API
- 
   if (NULL == striper) {
     logwrapper((char*)"Cannot create striper");  
     return -EINVAL;
   }
- 
+  dumpClusterInfo(); // JW enhanced logging
+
   int rc = striper->stat(fr.name, (uint64_t*)&(buf.st_size), &(buf.st_atime)); //Get details about a file
   
  
   bool fileExists = (rc != -ENOENT); //Make clear what condition we are testing
-
-  logwrapper((char*)"Access Mode: %s flags&O_ACCMODE %d ", pathname, flags);
 
   if ((flags&O_ACCMODE) == O_RDONLY) {  // Access mode is READ
 
@@ -1297,7 +1325,12 @@ int ceph_posix_unlink(XrdOucEnv* env, const char *pathname) {
     return -EINVAL;
   }
   int rc = striper->remove(file.name);
+  if (rc == 0) {
+      logwrapper((char*)"ceph_posix_unlink : %s unlink successful", pathname);
+      return 0;
+  }
   if (rc != -EBUSY) {
+    logwrapper((char*)"ceph_posix_unlink : %s unlink failed; return code %d", pathname, rc);
     return rc; 
   }
   // if EBUSY returned, assume the file is locked; so try to remove the lock

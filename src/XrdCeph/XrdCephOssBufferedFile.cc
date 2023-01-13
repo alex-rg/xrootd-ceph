@@ -28,6 +28,7 @@
 #include <iostream>
 #include <fcntl.h>
 #include <iomanip>
+#include <new>
 #include <ctime>
 #include <chrono>
 #include <thread>
@@ -147,29 +148,20 @@ ssize_t XrdCephOssBufferedFile::Read(off_t offset, size_t blen) {
 ssize_t XrdCephOssBufferedFile::Read(void *buff, off_t offset, size_t blen) {
   size_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-IXrdCephBufferAlg * buffer{nullptr};
-{
-  // lock in case need to create a new algorithm instance
-  const std::lock_guard<std::mutex> lock(m_buf_mutex);
-  auto buffer_it = m_bufferReadAlgs.find(thread_id);
-  if (buffer_it == m_bufferReadAlgs.end()) {
-      std::unique_ptr<IXrdCephBufferData> cephbuffer = std::unique_ptr<IXrdCephBufferData>(new XrdCephBufferDataSimple(m_bufsize));
-      std::unique_ptr<ICephIOAdapter>     cephio;
-      if (m_bufferIOmode == "aio") {
-          cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterAIORaw(cephbuffer.get(),m_fd));
-      } else if (m_bufferIOmode == "io") {
-          cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterRaw(cephbuffer.get(),m_fd));
-      } else {
-            BUFLOG("XrdCephOssBufferedFile: buffer mode needs to be one of aio|io " );
-            m_xrdOssDF->Close();
-            return -EINVAL;
-      }
-      // m_bufferReadAlgs.insert({thread_id, std::move(cephbuffer)});
-      m_bufferReadAlgs[thread_id] = std::unique_ptr<IXrdCephBufferAlg>(new XrdCephBufferAlgSimple(std::move(cephbuffer),std::move(cephio),m_fd) );
+  IXrdCephBufferAlg * buffer{nullptr};
+  // check for, and create if needed, a buffer
+  {
+    // lock in case need to create a new algorithm instance
+    const std::lock_guard<std::mutex> lock(m_buf_mutex);
+    auto buffer_itr = m_bufferReadAlgs.find(thread_id);
+    if (buffer_itr == m_bufferReadAlgs.end()) {
+      m_bufferReadAlgs[thread_id] = createBuffer();
+      buffer = m_bufferReadAlgs.find(thread_id)->second.get();
+    } else {
+      buffer = buffer_itr->second.get();
+    }
   }
-}
-  buffer = m_bufferReadAlgs.find(thread_id)->second.get();
-
+  
   int retry_counter{m_maxBufferRetries};
   ssize_t rc {0};
   while (retry_counter > 0) {
@@ -197,12 +189,26 @@ IXrdCephBufferAlg * buffer{nullptr};
 }
 
 int XrdCephOssBufferedFile::Read(XrdSfsAio *aiop) {
+  size_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+  IXrdCephBufferAlg * buffer{nullptr};
+  // check for, and create if needed, a buffer
+  {
+    // lock in case need to create a new algorithm instance
+    const std::lock_guard<std::mutex> lock(m_buf_mutex);
+    auto buffer_itr = m_bufferReadAlgs.find(thread_id);
+    if (buffer_itr == m_bufferReadAlgs.end()) {
+      m_bufferReadAlgs[thread_id] = createBuffer();
+      buffer = m_bufferReadAlgs.find(thread_id)->second.get();
+    } else {
+      buffer = buffer_itr->second.get();
+    }
+  }
 
   // LOGCEPH("XrdCephOssBufferedFile::AIOREAD: fd: " << m_xrdOssDF->getFileDescriptor() << "  "  << time(nullptr) << " : " 
   //         << aiop->sfsAio.aio_offset << " " 
   //         << aiop->sfsAio.aio_nbytes << " " << aiop->sfsAio.aio_reqprio << " "
   //         << aiop->sfsAio.aio_fildes );
-  ssize_t rc = m_bufferAlg->read_aio(aiop);
+  ssize_t rc = buffer->read_aio(aiop);
   if (rc > 0) {
     m_bytesReadAIO.fetch_add(rc);
   }  else {
@@ -224,23 +230,11 @@ int XrdCephOssBufferedFile::Fstat(struct stat *buff) {
 ssize_t XrdCephOssBufferedFile::Write(const void *buff, off_t offset, size_t blen) {
 
   if (!m_bufferAlg) {
-    // opened a file, so create the buffer here; note - this might be better delegated to the first read/write ...
-    // need the file descriptor, so do it after we know the file is opened (and not just a stat for example)
-    std::unique_ptr<IXrdCephBufferData> cephbuffer = std::unique_ptr<IXrdCephBufferData>(new XrdCephBufferDataSimple(m_bufsize));
-    // std::unique_ptr<ICephIOAdapter>     cephio     = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterRaw(cephbuffer.get(),m_fd));
-    std::unique_ptr<ICephIOAdapter>     cephio;
-    if (m_bufferIOmode == "aio") {
-        cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterAIORaw(cephbuffer.get(),m_fd));
-    } else if (m_bufferIOmode == "io") {
-        cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterRaw(cephbuffer.get(),m_fd));
-    } else {
-          BUFLOG("XrdCephOssBufferedFile: buffer mode needs to be one of aio|io " );
-          m_xrdOssDF->Close();
-          return -EINVAL;
+    m_bufferAlg = createBuffer();
+    if (!m_bufferAlg) {
+      LOGCEPH( "XrdCephOssBufferedFile: Error in creating buffered object");
+      return -EINVAL;
     }
-
-    LOGCEPH( "XrdCephOssBufferedFile::Open: fd: " << m_fd <<  " Buffer created: " << cephbuffer->capacity() );
-    m_bufferAlg = std::unique_ptr<IXrdCephBufferAlg>(new XrdCephBufferAlgSimple(std::move(cephbuffer),std::move(cephio),m_fd) );
   }
 
 
@@ -270,24 +264,12 @@ ssize_t XrdCephOssBufferedFile::Write(const void *buff, off_t offset, size_t ble
 }
 
 int XrdCephOssBufferedFile::Write(XrdSfsAio *aiop) {
+  if (!m_bufferAlg) {
+    m_bufferAlg = createBuffer();
     if (!m_bufferAlg) {
-    // opened a file, so create the buffer here; note - this might be better delegated to the first read/write ...
-    // need the file descriptor, so do it after we know the file is opened (and not just a stat for example)
-    std::unique_ptr<IXrdCephBufferData> cephbuffer = std::unique_ptr<IXrdCephBufferData>(new XrdCephBufferDataSimple(m_bufsize));
-    // std::unique_ptr<ICephIOAdapter>     cephio     = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterRaw(cephbuffer.get(),m_fd));
-    std::unique_ptr<ICephIOAdapter>     cephio;
-    if (m_bufferIOmode == "aio") {
-        cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterAIORaw(cephbuffer.get(),m_fd));
-    } else if (m_bufferIOmode == "io") {
-        cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterRaw(cephbuffer.get(),m_fd));
-    } else {
-          BUFLOG("XrdCephOssBufferedFile: buffer mode needs to be one of aio|io " );
-          m_xrdOssDF->Close();
-          return -EINVAL;
+      LOGCEPH( "XrdCephOssBufferedFile: Error in creating buffered object");
+      return -EINVAL;
     }
-
-    LOGCEPH( "XrdCephOssBufferedFile::Open: fd: " << m_fd <<  " Buffer created: " << cephbuffer->capacity() );
-    m_bufferAlg = std::unique_ptr<IXrdCephBufferAlg>(new XrdCephBufferAlgSimple(std::move(cephbuffer),std::move(cephio),m_fd) );
   }
 
   // LOGCEPH("XrdCephOssBufferedFile::AIOWRITE: fd: " << m_xrdOssDF->getFileDescriptor() << "  "   << time(nullptr) << " : " 
@@ -312,3 +294,29 @@ int XrdCephOssBufferedFile::Fsync() {
 int XrdCephOssBufferedFile::Ftruncate(unsigned long long len) {
   return m_xrdOssDF->Ftruncate(len);
 }
+
+
+  std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> XrdCephOssBufferedFile::createBuffer() {
+    std::unique_ptr<IXrdCephBufferAlg> bufferAlg;
+
+    try {
+      std::unique_ptr<IXrdCephBufferData> cephbuffer = std::unique_ptr<IXrdCephBufferData>(new XrdCephBufferDataSimple(m_bufsize));
+      std::unique_ptr<ICephIOAdapter>     cephio;
+      if (m_bufferIOmode == "aio") {
+          cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterAIORaw(cephbuffer.get(),m_fd));
+      } else if (m_bufferIOmode == "io") {
+          cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterRaw(cephbuffer.get(),m_fd));
+      } else {
+            BUFLOG("XrdCephOssBufferedFile: buffer mode needs to be one of aio|io " );
+            m_xrdOssDF->Close();
+            return bufferAlg; // invalid instance;
+      }
+
+      LOGCEPH( "XrdCephOssBufferedFile::Open: fd: " << m_fd <<  " Buffer created: " << cephbuffer->capacity() );
+      bufferAlg = std::unique_ptr<IXrdCephBufferAlg>(new XrdCephBufferAlgSimple(std::move(cephbuffer),std::move(cephio),m_fd) );
+    } catch (const std::bad_alloc &e) {
+      BUFLOG("XrdCephOssBufferedFile: Bad memory allocation in buffer: " << e.what() );
+    }
+
+    return bufferAlg;
+  }

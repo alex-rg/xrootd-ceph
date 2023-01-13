@@ -66,6 +66,8 @@ public:
   virtual int Ftruncate(unsigned long long);
 
 protected:
+  std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> createBuffer(); /// create a new instance of the buffer
+
   XrdCephOss *m_cephoss  = nullptr;
   XrdCephOssFile * m_xrdOssDF = nullptr; // holder of the XrdCephOssFile instance
   std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> m_bufferAlg;

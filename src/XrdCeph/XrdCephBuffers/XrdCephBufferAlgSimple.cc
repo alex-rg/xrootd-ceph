@@ -83,7 +83,11 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
     const std::lock_guard<std::recursive_mutex> lock(m_data_mutex); // 
     // BUFLOG("XrdCephBufferAlgSimple::read: postLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << offset << " " << blen);
 
-    //BUFLOG("XrdCephBufferAlgSimple::read: " << offset << " " << blen);
+    // BUFLOG("XrdCephBufferAlgSimple::read status:" 
+    //     << "\n\tRead off/len/end: " << offset << "/" << blen << "/(" << (offset+blen) <<")"
+    //     << "\n\tBuffer: start/length/end/cap: " << m_bufferStartingOffset << "/" << m_bufferLength << "/" 
+    //     << (m_bufferStartingOffset + m_bufferLength) << "/" << m_bufferdata->capacity()
+    //     );
     if (blen == 0) return 0;
 
     /**
@@ -91,8 +95,8 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
      * Invalidate the cache in anycase
      */
     if (blen >= m_bufferdata->capacity()) {
-        //BUFLOG("XrdCephBufferAlgSimple::read: Readthrough cache: fd: " << m_fd 
-        //          << " " << offset << " " << blen);
+        BUFLOG("XrdCephBufferAlgSimple::read: Readthrough cache: fd: " << m_fd 
+                 << " " << offset << " " << blen);
         // larger than cache, so read through, and invalidate the cache anyway
         m_bufferdata->invalidate();
         // #FIXME JW: const_cast is probably a bit poor.
@@ -109,6 +113,8 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
      * out the current buffer, and a second, to read the partial data from the refilled buffer
      */
     while (bytesRemaining > 0) { 
+        // BUFLOG("In loop: " << "  " << offset << " + " << offsetDelta << "; " << blen << " : " << bytesRemaining << " " << m_bufferLength);
+
         bool loadCache = false;
         // run some checks to see if we need to fill the cache. 
         if (m_bufferLength == 0) {
@@ -120,6 +126,9 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
         } else if (offset >=  (off_t) (m_bufferStartingOffset + m_bufferLength) ) {
             // offset is beyond the stored data
             loadCache = true;
+        } else if ((offset - m_bufferStartingOffset + offsetDelta) >= (off_t)m_bufferLength) {
+            // we have now read to the end of the buffers data
+            loadCache = true;
         }
 
         /**
@@ -130,7 +139,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
             // BUFLOG("XrdCephBufferAlgSimple::read: preLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << "Filling the cache");
             m_bufferdata->invalidate();
             rc = m_cephio->read(offset + offsetDelta, m_bufferdata->capacity()); // fill the cache
-            //BUFLOG("LoadCache ReadToCache: " << rc << " " << offset + offsetDelta << " " << m_bufferdata->capacity() );
+            BUFLOG("LoadCache ReadToCache: " << rc << " " << offset + offsetDelta << " " << m_bufferdata->capacity() );
             if (rc < 0) {
                 BUFLOG("LoadCache Error: " << rc);
                 return rc;// TODO return correct errors
@@ -144,9 +153,11 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
             }
         }
 
+
         //now read as much data as possible
-        off_t bufPosition = offset - m_bufferStartingOffset + offsetDelta; 
-        rc =  m_bufferdata->readBuffer( (void*) &(((char*)buf)[offsetDelta]) , bufPosition  + offsetDelta , bytesRemaining);
+        off_t bufPosition = offset  + offsetDelta - m_bufferStartingOffset; 
+        rc =  m_bufferdata->readBuffer( (void*) &(((char*)buf)[offsetDelta]) , bufPosition , bytesRemaining);
+        // BUFLOG("Fill result: " << offsetDelta << " " << bufPosition << " " << bytesRemaining << " " << rc)
         if (rc < 0 ) {
             BUFLOG("Reading from Cache Failed: " << rc << "  " << offsetDelta << "  " << bytesRemaining );
             return rc; // TODO return correct errors
@@ -158,7 +169,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
             //i.e. requested a full buffers worth, but only a fraction of the file is here.
         }
 
-        //BUFLOG("End of loop: " << rc << "  " << offset << " + " << offsetDelta << "; " << blen << " : " << bytesRemaining);
+        // BUFLOG("End of loop: " << rc << "  " << offset << " + " << offsetDelta << "; " << blen << " : " << bytesRemaining);
         offsetDelta    += rc; 
         bytesRemaining -= rc;
         bytesRead      += rc;

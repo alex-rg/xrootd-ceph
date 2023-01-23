@@ -121,6 +121,16 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
      return -ENOMEM;
   }
 
+  /*For testing purposes, check what happens if wrong data is returned
+   * REMOVE IN PRODUCTION!!! */
+  if (readv_counter % 1000 == 0) {
+    for (int i = 0; i < n; i++) {
+      if (readV[i].offset > 0 && (i == 0 || (readV[i-1].offset < readV[i].offset -1))) {
+        readV[i].offset = readV[i].offset - 1;
+      }
+    }
+  }
+
   for (int i = 0; i < n; i++) {
     //Calculate new block borders, after a chunk will be added to the block
     //To do so first calculate end of current block and end of chunk

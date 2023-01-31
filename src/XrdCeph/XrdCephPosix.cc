@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <ctime>
 #include <memory>
 #include <radosstriper/libradosstriper.hpp>
 #include <map>
@@ -271,6 +272,10 @@ class bulkAioRead {
       std::get<0>(i)->wait_for_complete();
     }
   };
+
+  size_t get_size() {
+    return operations.size();
+  }
 
   ssize_t get_results() {
     ceph::bufferlist* bl;
@@ -969,7 +974,6 @@ ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset)  {
   CephFileRef* fr = getFileRef(fd);
   if (fr) {
     // TODO implement proper logging level for this plugin - this should be only debug
-    //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
     if ((fr->flags & O_WRONLY) != 0) {
       return -EBADF;
     }
@@ -982,8 +986,10 @@ ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset)  {
     unsigned int start_block;
     char * fname;
     char * buf_ptr;
+    off_t original_offset;
 
     req_len = blen;
+    original_offset = offset;
 
     try {
       //Extra 18 symbols for stipe object -- 16 digits, dot and null
@@ -1014,7 +1020,6 @@ ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset)  {
         chunk_len = block_size - chunk_start;
       }
 
-      //logwrapper((char*)"Going to read %s, %lu %lu\n", fname, chunk_len, chunk_start);
       rc = readOp.addRequest(fname, chunk_len, chunk_start, buf_ptr);
       if (rc < 0) {
         logwrapper((char*)"Unable to submit async read request of file %s: rc=%d\n", fname, rc);
@@ -1035,7 +1040,19 @@ ssize_t ceph_async_read(int fd, void *buff, size_t blen, off_t offset)  {
     }
 
     read_bytes = 0;
+    std::time_t wait_start = std::time(0);
     readOp.wait_for_complete();
+    std::time_t wait_end = std::time(0);
+    if (wait_end - wait_start > XRDCEPH_AIO_WARN_THRESH) {
+      logwrapper(
+        (char*)"Getting aio results for %s took too long, %ld seconds for read with coordinates %lu %ld %lu",
+        fr->name.c_str(),
+        wait_end - wait_start,
+        blen,
+        original_offset,
+        readOp.get_size()
+      );
+    }
     read_bytes = readOp.get_results();
     delete [] fname;
     XrdSysMutexHelper lock(fr->statsMutex);

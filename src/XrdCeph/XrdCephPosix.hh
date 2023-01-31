@@ -36,6 +36,9 @@
 #include <XrdSys/XrdSysXAttr.hh>
 #include "XrdOuc/XrdOucIOVec.hh"
 
+//if aio issued in ceph_async_read takes more then this (seconds), print warning
+#define XRDCEPH_AIO_WARN_THRESH 15
+
 class XrdSfsAio;
 typedef void(AioCB)(XrdSfsAio*, size_t);
 

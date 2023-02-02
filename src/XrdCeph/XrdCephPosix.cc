@@ -54,7 +54,7 @@
 
 #include "XrdCeph/XrdCephPosix.hh"
 
-typedef std::tuple<librados::AioCompletion*, ceph::bufferlist*, char*> ReadOpData;
+typedef std::tuple<ceph::bufferlist*, char*, int*> ReadOpData;
 
 /// small structs to store file metadata
 struct CephFile {
@@ -238,66 +238,114 @@ class bulkAioRead {
   };
 
   ~bulkAioRead() {
-    for (ReadOpData i: operations){
-      std::get<0>(i)->release();
-      delete std::get<1>(i);
-    }
+    clear();
   };
 
-  int addRequest(const char* fname, ssize_t size, off64_t offset, char* out_buf) {
-     librados::AioCompletion* cmpl;
-     ceph::bufferlist* bl;
-     ReadOpData tup;
+  void clear() {
+    for (ReadOpData i: buffers){
+      delete std::get<0>(i);
+      delete std::get<2>(i);
+    }
+    buffers.clear();
+    for (auto const& tup: operations) {
+      librados::ObjectReadOperation *op = std::get<0>(tup.second);
+      librados::AioCompletion *cmpl = std::get<1>(tup.second);
+      cmpl->release();
+      delete op;
+    }
+    operations.clear();
+  }
 
-     cmpl = librados::Rados::aio_create_completion();
-     if (0 == cmpl) {
-       logwrapper((char*)"Can not create completion for read (%lu, %lu)", offset, size);
-       return -1;
-     }
+  int addRequest(const char* objname, ssize_t size, off64_t offset, char* out_buf) {
+    ceph::bufferlist *bl;
+    std::string std_objname(objname);
+    int *retval;
+    librados::ObjectReadOperation *rop;
 
-     try {
-       bl = new ceph::bufferlist();
-     } catch (std::bad_alloc&) {
-       logwrapper((char*)"Can not allocate buffer for read (%lu, %lu)", offset, size);
-       cmpl->release();
-       return -1;
-     }
+    try {
+      bl = new ceph::bufferlist();
+    } catch (std::bad_alloc&) {
+      logwrapper((char*)"Can not allocate buffer for read (%lu, %lu)", offset, size);
+      return -ENOMEM;
+    }
 
-     tup = std::make_tuple(cmpl, bl, out_buf);
-     operations.push_back(tup);
+    try {
+      retval = new int;
+    } catch (std::bad_alloc&) {
+      logwrapper((char*)"Can not allocate int for read's retval (%lu, %lu)", offset, size);
+      delete bl;
+      return -ENOMEM;
+    }
 
-     return context->aio_read(fname, cmpl, bl, size, offset);
+    auto tup = operations.find(std_objname);
+    if (operations.end() == tup) {
+      try {
+        rop = new librados::ObjectReadOperation;
+      } catch (std::bad_alloc&) {
+        logwrapper((char*)"Can not allocate int for read object op (%lu, %lu)", offset, size);
+        delete bl;
+        delete retval;
+        return -ENOMEM;
+      }
+
+      librados::AioCompletion *cmpl = librados::Rados::aio_create_completion();
+      if (0 == cmpl) {
+        logwrapper((char*)"Can not create completion for read (%lu, %lu)", offset, size);
+        delete bl;
+        delete retval;
+        delete rop;
+        return -ENOMEM;
+      }
+      operations.insert( {std_objname, std::make_pair(rop, cmpl)} );
+    } else {
+      rop = std::get<0>(tup->second);
+    }
+    buffers.push_back( std::make_tuple(bl, out_buf, retval) );
+
+    rop->read(offset, size, bl, retval);
+    return 0;
   };
 
   void wait_for_complete() {
-    for (ReadOpData i: operations) {
-      std::get<0>(i)->wait_for_complete();
+    std::string obj_name;
+    librados::AioCompletion* cmpl;
+    librados::ObjectReadOperation* op;
+    for (auto const& tup: operations) {
+      obj_name = tup.first;
+      op = std::get<0>(tup.second);
+      cmpl = std::get<1>(tup.second);
+      context->aio_operate(obj_name, cmpl, op, 0);
+    }
+
+    for (auto const& tup: operations) {
+      cmpl = std::get<1>(tup.second);
+      cmpl->wait_for_complete();
     }
   };
 
   ssize_t get_results() {
     ceph::bufferlist* bl;
-    librados::AioCompletion* cmpl;
     char *buf;
+    int *rc;
     ssize_t res = 0;
-    int rc;
-    for (ReadOpData i: operations) {
-      cmpl = std::get<0>(i);
-      bl = std::get<1>(i);
-      buf = std::get<2>(i);
-      rc = cmpl->get_return_value();
-      if (rc < 0) {
-        return rc;
+    for (ReadOpData i: buffers) {
+      bl = std::get<0>(i);
+      buf = std::get<1>(i);
+      rc = std::get<2>(i);
+      if (*rc < 0) {
+        logwrapper((char*)"One of the reads failed with rc %d", rc);
+        return *rc;
       }
-      bl->begin().copy(rc, buf);
-      res += rc;
+      bl->begin().copy(bl->length(), buf);
+      res += bl->length();
     }
     return res;
   };
 
   private:
   librados::IoCtx* context;
-  std::list<ReadOpData> operations;
+  std::list<ReadOpData> buffers;
+  std::map<std::string, std::pair<librados::ObjectReadOperation*, librados::AioCompletion*>> operations;
 };
 
 /// simple integer parsing, to be replaced by std::stoll when C++11 can be used
@@ -1020,7 +1068,6 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
           chunk_len = block_size - chunk_start;
         }
 
-        //logwrapper((char*)"Going to read %s, %lu %lu\n", fname, chunk_len, chunk_start);
         rc = readOp.addRequest(fname, chunk_len, chunk_start, buf_ptr);
         if (rc < 0) {
           logwrapper((char*)"Unable to submit async read request of file %s: rc=%d\n", fname, rc);

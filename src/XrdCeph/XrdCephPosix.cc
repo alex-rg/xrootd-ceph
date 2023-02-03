@@ -1015,6 +1015,64 @@ ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb) {
   }
 }
 
+int ceph_submit_async_read(bulkAioRead& readOp, char* buf, size_t req_size, off64_t offset, unsigned int block_size, const char* file_name) {
+  char *obj_name_buf;
+
+  try {
+    //Extra 18 symbols for stipe object -- 16 digits, dot and null
+    obj_name_buf = new char[strlen(file_name) + 18];
+  } catch(std::bad_alloc&) {
+    logwrapper( (char*)"Can not allocate data for block filename\n");
+    return -ENOMEM;
+  }
+
+  rc = ceph_submit_async_read(readOp, readV[i].data, readV[i].size, readV[i].offset, block_size, file_name, obj_name_buf);
+  delete obj_name_buf;
+  return rc;
+}
+
+int ceph_submit_async_read(bulkAioRead& readOp, char* buf, size_t req_size, off64_t offset, unsigned int block_size, const char* file_name, char* obj_name_buf) {
+  size_t end_block, buf_pos, chunk_len, chunk_start, req_len;
+  //We are using start_block in printf with %s, so we have to use int.
+  //Hopefully, our file's sizes are not too big...
+  unsigned int start_block;
+  char *buf_ptr;
+  int rc;
+  
+  req_len = req_size;
+  start_block = offset / block_size;
+  end_block = (offset + req_len - 1) / block_size;
+  buf_ptr = (char*) buf;
+  buf_pos = 0;
+
+  while (start_block <= end_block) {
+    sprintf(obj_name_buf, "%s.%016x", file_name, start_block);
+    chunk_start = offset % block_size;
+    if (req_len < block_size - chunk_start) {
+      chunk_len = req_len;
+    } else {
+      chunk_len = block_size - chunk_start;
+    }
+
+    rc = readOp.addRequest(obj_name_buf, chunk_len, chunk_start, buf_ptr);
+    if (rc < 0) {
+      logwrapper((char*)"Unable to submit async read request, rc=%d\n", rc);
+      return rc;
+    }
+    buf_pos += chunk_len;
+    if (buf_pos > req_size) {
+      logwrapper((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu)\n", buf_pos, offset, req_size);
+      return rc;
+    }
+    buf_ptr += chunk_len;
+
+    start_block++;
+    offset = start_block*block_size;
+    req_len = req_len - chunk_len;
+  }
+  return 0;
+}
+
 
 ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
   CephFileRef* fr = getFileRef(fd);
@@ -1026,73 +1084,40 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
     }
 
     const unsigned int block_size = fr->objectSize;
-
+    char* obj_name_buf;
+    ssize_t read_bytes;
     int rc;
-    ssize_t end_block, req_len, chunk_start, chunk_len, buf_pos, read_bytes;
-    unsigned int start_block;
-    off_t offset;
-    char * fname;
-    char * buf_ptr;
-    ceph::bufferlist bl;
 
     try {
       //Extra 18 symbols for stipe object -- 16 digits, dot and null
-      fname = new char[strlen(fr->name.c_str()) + 18];
+      obj_name_buf = new char[strlen(fr->name.c_str()) + 18];
     } catch(std::bad_alloc&) {
       logwrapper( (char*)"Can not allocate data for block filename\n");
-      return -1;
+      return -ENOMEM;
     }
 
     librados::IoCtx *ioctx = getIoCtx(*fr);
     if (0 == ioctx) {
-      errno = EINVAL;
-      return 0;
+      delete obj_name_buf;
+      return -EINVAL;
     }
     bulkAioRead readOp = bulkAioRead(ioctx);
 
     for (int i = 0; i < n; i++) {
-      offset = readV[i].offset;
-      req_len = readV[i].size;
-      start_block = offset / block_size;
-      end_block = (offset + req_len - 1) / block_size;
-      buf_ptr = (char*) readV[i].data;
-      buf_pos = 0;
-
-      while (start_block <= end_block) {
-        sprintf(fname, "%s.%016x", fr->name.c_str(), start_block);
-        chunk_start = offset % block_size;
-        if (req_len < block_size - chunk_start) {
-          chunk_len = req_len;
-        } else {
-          chunk_len = block_size - chunk_start;
-        }
-
-        rc = readOp.addRequest(fname, chunk_len, chunk_start, buf_ptr);
-        if (rc < 0) {
-          logwrapper((char*)"Unable to submit async read request of file %s: rc=%d\n", fname, rc);
-          delete[] fname;
-          return rc;
-        }
-        buf_pos += chunk_len;
-        if (buf_pos > readV[i].size) {
-          logwrapper((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu)\n", buf_pos, readV[i].offset, readV[i].size);
-          delete[] fname;
-        }
-        buf_ptr += chunk_len;
-
-        start_block++;
-        offset = start_block*block_size;
-        req_len = req_len - chunk_len;
+      rc = ceph_submit_async_read(readOp, readV[i].data, readV[i].size, readV[i].offset, block_size, fr->name.c_str(), obj_name_buf);
+      if (rc < 0) {
+        logwrapper( (char*)"Can not submit read request\n");
+        delete [] obj_name_buf;
+        return rc;
       }
     }
 
-    read_bytes = 0;
     readOp.wait_for_complete();
     read_bytes = readOp.get_results();
-    delete [] fname;
+    delete [] obj_name_buf;
     XrdSysMutexHelper lock(fr->statsMutex);
     //Should we consider readv as a single operation?
-    fr->rdcount += n;
+    fr->rdcount += 1;
     return read_bytes;
   } else {
     return -EBADF;
@@ -1132,17 +1157,33 @@ ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset) {
     if ((fr->flags & O_WRONLY) != 0) {
       return -EBADF;
     }
-    libradosstriper::RadosStriper *striper = getRadosStriper(*fr);
-    if (0 == striper) {
+
+    const unsigned int block_size = fr->objectSize;
+    char* obj_name_buf;
+    ssize_t read_bytes;
+    int rc;
+
+    librados::IoCtx *ioctx = getIoCtx(*fr);
+    if (0 == ioctx) {
+      delete obj_name_buf;
       return -EINVAL;
     }
-    ceph::bufferlist bl;
-    int rc = striper->read(fr->name, &bl, count, offset);
-    if (rc < 0) return rc;
-    bl.begin().copy(rc, (char*)buf);
-    XrdSysMutexHelper lock(fr->statsMutex);
-    fr->rdcount++;
-    return rc;
+    bulkAioRead readOp = bulkAioRead(ioctx);
+    rc = ceph_submit_async_read(readOp, readV[i].data, readV[i].size, readV[i].offset, block_size, fr->name.c_str(), obj_name_buf);
+    if (rc < 0) {
+      return rc;
+    }
+
+    readOp.wait_for_complete();
+    read_bytes = readOp.get_results();
+
+    if (read_bytes > 0) {
+      XrdSysMutexHelper lock(fr->statsMutex);
+      fr->rdcount++;
+    } else {
+      logwrapper( (char*)"Error while read\n");
+    }
+    return read_bytes;
   } else {
     return -EBADF;
   }

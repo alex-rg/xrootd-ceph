@@ -44,6 +44,8 @@
 #include "XrdCeph/XrdCephOssBufferedFile.hh"
 #include "XrdCeph/XrdCephOssReadVFile.hh"
 
+#include <chrono>
+
 XrdVERSIONINFO(XrdOssGetStorageSystem, XrdCephOss);
 
 XrdSysError XrdCephEroute(0);

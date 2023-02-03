@@ -49,6 +49,8 @@
 
 #include "XrdOuc/XrdOucIOVec.hh"
 
+#include "XrdCephBulkAioRead.hh"
+
 class XrdSfsAio;
 typedef void(AioCB)(XrdSfsAio*, size_t);
 

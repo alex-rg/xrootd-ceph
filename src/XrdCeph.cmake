@@ -55,6 +55,7 @@ add_library(
   XrdCeph/XrdCephBuffers/BufferUtils.cc  XrdCeph/XrdCephBuffers/BufferUtils.hh
   XrdCeph/XrdCephBuffers/XrdCephReadVNoOp.cc  XrdCeph/XrdCephBuffers/XrdCephReadVNoOp.hh
   XrdCeph/XrdCephBuffers/XrdCephReadVBasic.cc  XrdCeph/XrdCephBuffers/XrdCephReadVBasic.hh
+  XrdCeph/XrdCephBulkAioRead.cc XrdCeph/XrdCephBulkAioRead.hh)
 )
 
 target_link_libraries(

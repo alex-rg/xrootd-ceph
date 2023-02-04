@@ -50,6 +50,10 @@
 //! In case one of the two only has a default, it will be applied for both plugins.
 //------------------------------------------------------------------------------
 
+//If read operation performed by bulkAioRead class
+//takes more than this (seconds), print warning message
+#define XRDCEPH_AIO_WAIT_THRESH 15
+
 class XrdCephOss : public XrdOss {
 public:
   XrdCephOss(const char *, XrdSysError &);

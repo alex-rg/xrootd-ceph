@@ -53,6 +53,7 @@
 #include "XrdOuc/XrdOucIOVec.hh"
 
 #include "XrdCeph/XrdCephPosix.hh"
+#include "XrdCeph/XrdCephOss.hh"
 
 /// small structs to store file metadata
 struct CephFile {
@@ -922,7 +923,16 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
       }
     }
 
+    std::time_t wait_time = std::time(0);
     readOp.wait_for_complete();
+    wait_time = std::time(0) - wait_time;
+    if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+      logwrapper(
+        (char*)"Waiting for AIO results in readv for %s took %ld sedonds, too long!t\n",
+        fr->name.c_str(),
+        wait_time
+      );
+    }
     read_bytes = readOp.get_results();
     XrdSysMutexHelper lock(fr->statsMutex);
     //Should we consider readv as a single operation?
@@ -980,7 +990,16 @@ ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset) {
     if (rc < 0) {
       return rc;
     }
+    std::time_t wait_time = std::time(0);
     readOp.wait_for_complete();
+    wait_time = std::time(0) - wait_time;
+    if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+      logwrapper(
+        (char*)"Waiting for AIO results in pread for %s took %ld sedonds, too long!t\n",
+        fr->name.c_str(),
+        wait_time
+      );
+    }
     bytes_read = readOp.get_results();
 
     if (bytes_read > 0) {

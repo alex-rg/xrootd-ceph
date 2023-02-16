@@ -17,7 +17,8 @@
 using namespace XrdCephBuffer;
 
 
-XrdCephBufferAlgSimple::XrdCephBufferAlgSimple(std::unique_ptr<IXrdCephBufferData> buffer, std::unique_ptr<ICephIOAdapter> cephio, int fd ):
+XrdCephBufferAlgSimple::XrdCephBufferAlgSimple(std::unique_ptr<IXrdCephBufferData> buffer, 
+                                               std::unique_ptr<ICephIOAdapter> cephio, int fd ):
 m_bufferdata(std::move(buffer)), m_cephio(std::move(cephio)), m_fd(fd){
 
 }
@@ -99,6 +100,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
                  << " " << offset << " " << blen);
         // larger than cache, so read through, and invalidate the cache anyway
         m_bufferdata->invalidate();
+        m_bufferLength =0; // ensure cached data is set to zero length
         // #FIXME JW: const_cast is probably a bit poor.
         return ceph_posix_pread(m_fd, const_cast<void*>(buf), blen, offset);
     }
@@ -138,6 +140,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
         if (loadCache) {
             // BUFLOG("XrdCephBufferAlgSimple::read: preLock: " << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " " << "Filling the cache");
             m_bufferdata->invalidate();
+            m_bufferLength =0; // set lengh of data stored to 0
             rc = m_cephio->read(offset + offsetDelta, m_bufferdata->capacity()); // fill the cache
             // BUFLOG("LoadCache ReadToCache: " << rc << " " << offset + offsetDelta << " " << m_bufferdata->capacity() );
             if (rc < 0) {
@@ -159,7 +162,10 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
         rc =  m_bufferdata->readBuffer( (void*) &(((char*)buf)[offsetDelta]) , bufPosition , bytesRemaining);
         // BUFLOG("Fill result: " << offsetDelta << " " << bufPosition << " " << bytesRemaining << " " << rc)
         if (rc < 0 ) {
-            BUFLOG("Reading from Cache Failed: " << rc << "  " << offsetDelta << "  " << bytesRemaining );
+            BUFLOG("Reading from Cache Failed: " << rc << "  " << offset << " " 
+                    << offsetDelta << "  " << m_bufferStartingOffset << " " 
+                    << bufPosition << " " 
+                    << bytesRemaining );
             return rc; // TODO return correct errors
         }
         if (rc == 0) {

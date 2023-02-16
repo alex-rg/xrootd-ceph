@@ -49,7 +49,8 @@ class XrdCephOssBufferedFile : virtual public XrdCephOssFile { // XrdOssDF
 
 public:
   XrdCephOssBufferedFile(XrdCephOss *cephoss,XrdCephOssFile *cephossDF, size_t buffersize, 
-                          const std::string& bufferIOmode); 
+                          const std::string& bufferIOmode,
+                          size_t maxNumberSimulBuffers); 
   //explicit XrdCephOssBufferedFile(size_t buffersize); 
   virtual ~XrdCephOssBufferedFile();
   virtual int Open(const char *path, int flags, mode_t mode, XrdOucEnv &env);
@@ -72,8 +73,8 @@ protected:
   XrdCephOssFile * m_xrdOssDF = nullptr; // holder of the XrdCephOssFile instance
   std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> m_bufferAlg;
   std::map<size_t, std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> > m_bufferReadAlgs;
-  std::mutex m_buf_mutex; // any data access method on the buffer will use this
-
+  std::mutex m_buf_mutex; //! any data access method on the buffer will use this
+  size_t m_maxCountReadBuffers {10}; //! set the maximum of buffers to open on a single instance (e.g. for simultaneous file reads)
 
 
   int m_maxBufferRetries {5}; //! How many times to retry a ready from a buffer with EBUSY errors 

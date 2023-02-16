@@ -56,11 +56,13 @@ extern XrdOucTrace XrdCephTrace;
 
 
 XrdCephOssBufferedFile::XrdCephOssBufferedFile(XrdCephOss *cephoss,XrdCephOssFile *cephossDF, 
-                                                size_t buffersize,const std::string& bufferIOmode):
+                                                size_t buffersize,const std::string& bufferIOmode,
+                                                size_t maxNumberSimulBuffers):
                   XrdCephOssFile(cephoss), m_cephoss(cephoss), m_xrdOssDF(cephossDF), 
+                  m_maxCountReadBuffers(maxNumberSimulBuffers),
                   m_maxBufferRetrySleepTime_ms(1000), 
                   m_bufsize(buffersize),
-                  m_bufferIOmode(bufferIOmode)
+                  m_bufferIOmode(bufferIOmode)     
 {
 
 }
@@ -128,7 +130,8 @@ int XrdCephOssBufferedFile::Close(long long *retsz) {
           << ", writeAIO_B:" << m_bytesWriteAIO.load()
           << ", startTime:\"" << std::put_time(std::localtime(&t_s), "%F %T") << "\", endTime:\"" 
           << std::put_time(std::localtime(&t_c), "%F %T") << "\""
-          << "}");
+          << ", nBuffersRead:" << m_bufferReadAlgs.size()
+          << "}"); 
 
   return m_xrdOssDF->Close(retsz);
 }
@@ -155,12 +158,23 @@ ssize_t XrdCephOssBufferedFile::Read(void *buff, off_t offset, size_t blen) {
     const std::lock_guard<std::mutex> lock(m_buf_mutex);
     auto buffer_itr = m_bufferReadAlgs.find(thread_id);
     if (buffer_itr == m_bufferReadAlgs.end()) {
-      m_bufferReadAlgs[thread_id] = createBuffer();
-      buffer = m_bufferReadAlgs.find(thread_id)->second.get();
+      // only create a buffer, if we haven't hit the max buffers yet
+      auto buffer_ptr = std::move(createBuffer());
+      if (buffer_ptr) {
+        buffer = buffer_ptr.get();
+        m_bufferReadAlgs[thread_id] = std::move(buffer_ptr);
+      } else {
+        // if we can't create a buffer, we just have to pass through the read ... 
+        ssize_t rc = m_xrdOssDF->Read(buff, offset, blen);
+        if (rc >= 0) {
+          LOGCEPH( "XrdCephOssBufferedFile::Read buffers bypassed (too many simultaneous buffers, and read failed with rc: " << rc );
+        }
+        return rc;
+      }
     } else {
       buffer = buffer_itr->second.get();
     }
-  }
+  } // scope of lock
   
   int retry_counter{m_maxBufferRetries};
   ssize_t rc {0};
@@ -296,11 +310,19 @@ int XrdCephOssBufferedFile::Ftruncate(unsigned long long len) {
 }
 
 
-  std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> XrdCephOssBufferedFile::createBuffer() {
+std::unique_ptr<XrdCephBuffer::IXrdCephBufferAlg> XrdCephOssBufferedFile::createBuffer() {
     std::unique_ptr<IXrdCephBufferAlg> bufferAlg;
 
+    size_t bufferSize {m_bufsize};  // create buffer of default size
+    if (m_bufferReadAlgs.size() >= m_maxCountReadBuffers) {
+      BUFLOG("XrdCephOssBufferedFile: buffer reached max number of simul-buffers for this file: creating only 1MiB buffer" );
+      bufferSize = 1048576;
+    } else {
+      BUFLOG("XrdCephOssBufferedFile: buffer: got " << m_bufferReadAlgs.size() << " buffers already");
+    }
+
     try {
-      std::unique_ptr<IXrdCephBufferData> cephbuffer = std::unique_ptr<IXrdCephBufferData>(new XrdCephBufferDataSimple(m_bufsize));
+      std::unique_ptr<IXrdCephBufferData> cephbuffer = std::unique_ptr<IXrdCephBufferData>(new XrdCephBufferDataSimple(bufferSize));
       std::unique_ptr<ICephIOAdapter>     cephio;
       if (m_bufferIOmode == "aio") {
           cephio = std::unique_ptr<ICephIOAdapter>(new CephIOAdapterAIORaw(cephbuffer.get(),m_fd));

@@ -24,7 +24,16 @@ m_bufferdata(std::move(buffer)), m_cephio(std::move(cephio)), m_fd(fd){
 }
 
 XrdCephBufferAlgSimple::~XrdCephBufferAlgSimple() {
-    BUFLOG("XrdCephBufferAlgSimple::Destructor fd:" << m_fd);
+    int prec = std::cout.precision();
+    float bytesBuffered = m_stats_bytes_fromceph - m_stats_bytes_bypassed;
+    float cacheUseFraction = bytesBuffered > 0 ? (1.*(m_stats_bytes_toclient-m_stats_bytes_bypassed)/bytesBuffered) : 1. ;
+
+    BUFLOG("XrdCephBufferAlgSimple::Destructor, fd=" << m_fd 
+            << ", retrieved_bytes="  << m_stats_bytes_fromceph 
+            << ", bypassed_bytes=" << m_stats_bytes_bypassed
+            << ", delivered_bytes=" << m_stats_bytes_toclient 
+            << std::setprecision(4)
+            << ", cache_hit_frac=" << cacheUseFraction << std::setprecision(prec));
     m_fd = -1;
 }
 
@@ -102,7 +111,13 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
         m_bufferdata->invalidate();
         m_bufferLength =0; // ensure cached data is set to zero length
         // #FIXME JW: const_cast is probably a bit poor.
-        return ceph_posix_pread(m_fd, const_cast<void*>(buf), blen, offset);
+        ssize_t rc = ceph_posix_pread(m_fd, const_cast<void*>(buf), blen, offset);
+        if (rc > 0) {
+            m_stats_bytes_fromceph += rc;
+            m_stats_bytes_toclient += rc;
+            m_stats_bytes_bypassed += rc;
+        }
+        return rc;
     }
 
     ssize_t rc(-1);
@@ -147,6 +162,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
                 BUFLOG("LoadCache Error: " << rc);
                 return rc;// TODO return correct errors
             }
+            m_stats_bytes_fromceph += rc;
             m_bufferStartingOffset = offset + offsetDelta;
             m_bufferLength = rc;
             if (rc == 0) {
@@ -174,7 +190,7 @@ ssize_t XrdCephBufferAlgSimple::read(volatile void *buf,   off_t offset, size_t 
             break; // leave the loop even though bytesremaing is probably >=0.
             //i.e. requested a full buffers worth, but only a fraction of the file is here.
         }
-
+        m_stats_bytes_toclient += rc;
         // BUFLOG("End of loop: " << rc << "  " << offset << " + " << offsetDelta << "; " << blen << " : " << bytesRemaining);
         offsetDelta    += rc; 
         bytesRemaining -= rc;

@@ -167,7 +167,7 @@ ssize_t XrdCephOssBufferedFile::Read(void *buff, off_t offset, size_t blen) {
         // if we can't create a buffer, we just have to pass through the read ... 
         ssize_t rc = m_xrdOssDF->Read(buff, offset, blen);
         if (rc >= 0) {
-          LOGCEPH( "XrdCephOssBufferedFile::Read buffers bypassed (too many simultaneous buffers, and read failed with rc: " << rc );
+          LOGCEPH( "XrdCephOssBufferedFile::Read buffers and read failed with rc: " << rc );
         }
         return rc;
       }

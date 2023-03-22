@@ -113,10 +113,7 @@ ssize_t bulkAioRead::get_results() {
 
 int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
 
-  size_t end_block, buf_pos, chunk_len, chunk_start, req_len;
-  //We are using start_block in printf with %s, so we have to use int.
-  //Hopefully, our file's sizes are not too big...
-  unsigned int start_block;
+  size_t start_block, end_block, buf_pos, chunk_len, chunk_start, req_len;
   char *buf_ptr;
   //16 bytes for object hex number, 1 for dot and 1 for null-terminator
   char object_suffix[18];
@@ -130,7 +127,7 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   buf_pos = 0;
 
   while (start_block <= end_block) {
-    sprintf(object_suffix, ".%016x", start_block);
+    sprintf(object_suffix, ".%016zx", start_block);
     obj_name =  file_name + std::string(object_suffix);
 
     chunk_start = offset % block_size;

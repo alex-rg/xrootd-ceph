@@ -59,7 +59,11 @@ ssize_t XrdCephOssFile::Read(off_t offset, size_t blen) {
 }
 
 ssize_t XrdCephOssFile::Read(void *buff, off_t offset, size_t blen) {
-  return ceph_posix_pread(m_fd, buff, blen, offset);
+  if (m_cephOss->m_useDefaultPreadAlg) {
+    return ceph_posix_pread(m_fd, buff, blen, offset);
+  } else {
+    return ceph_posix_atomic_pread(m_fd, buff, blen, offset);
+  }
 }
 
 static void aioReadCallback(XrdSfsAio *aiop, size_t rc) {
@@ -75,9 +79,24 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
   return Read(buff, offset, blen);
 }
 
-ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n)
-{
-   return ceph_async_readv(m_fd, readV, n);
+ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
+  if (m_cephOss->m_useDefaultReadvAlg) {
+    ssize_t nbytes = 0, curCount = 0;
+    for (int i=0; i<n; i++)
+         {curCount = ceph_posix_pread(m_fd,
+                          (void *)readV[i].data,
+                          (size_t)readV[i].size,
+                          (off_t)readV[i].offset);
+          if (curCount != readV[i].size)
+             {if (curCount < 0) return curCount;
+              return -ESPIPE;
+             }
+          nbytes += curCount;
+         }
+     return nbytes;
+  } else {
+    return ceph_async_readv(m_fd, readV, n);
+  }
 }
 
 

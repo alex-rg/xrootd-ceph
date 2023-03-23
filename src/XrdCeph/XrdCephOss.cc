@@ -230,6 +230,31 @@ int XrdCephOss::Configure(const char *configfn, XrdSysError &Eroute) {
            return 1; 
          }
        }       
+
+       int pread_flag_set = !strncmp(var, "ceph.usedefaultpreadalg", 24);
+       int readv_flag_set = !strncmp(var, "ceph.usedefaultreadvalg", 24);
+       if (pread_flag_set or readv_flag_set) {
+         var = Config.GetWord();
+         if (var) {
+           char* endptr;
+           long value = strtol(var, &endptr, 10);
+           if ((value == 0 || value == 1) && (var != endptr)) {
+             if (pread_flag_set) {
+               m_useDefaultPreadAlg = value;
+             } else if(readv_flag_set) {
+               m_useDefaultReadvAlg = value;
+             } else {
+               Eroute.Emsg("Config", "Bug encountered during parsing", var);
+             }
+           } else {
+             Eroute.Emsg("Config", "Invalid value for ceph.usedefault* in config file -- must be 0 or 1, got", var);
+             return 1;
+           }
+         } else {
+           Eroute.Emsg("Config", "Missing value for ceph.usedefault* in config file", var);
+           return 1; 
+         }
+       }
  
      }
 

@@ -968,7 +968,9 @@ ssize_t ceph_posix_read(int fd, void *buf, size_t count) {
   }
 }
 
-ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset) {
+ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset) {
+  //The same as pread, but do not relies on rados striper library. Uses direct atomic
+  //reads from ceph object (see BulkAioRead class for details).
   CephFileRef* fr = getFileRef(fd);
   if (fr) {
     // TODO implement proper logging level for this plugin - this should be only debug
@@ -1009,6 +1011,30 @@ ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset) {
       logwrapper( (char*)"Error while read\n");
     }
     return bytes_read;
+  } else {
+    return -EBADF;
+  }
+}
+
+ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset) {
+  CephFileRef* fr = getFileRef(fd);
+  if (fr) {
+    // TODO implement proper logging level for this plugin - this should be only debug
+    //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
+    if ((fr->flags & O_WRONLY) != 0) {
+      return -EBADF;
+    }
+    libradosstriper::RadosStriper *striper = getRadosStriper(*fr);
+    if (0 == striper) {
+      return -EINVAL;
+    }
+    ceph::bufferlist bl;
+    int rc = striper->read(fr->name, &bl, count, offset);
+    if (rc < 0) return rc;
+    bl.begin().copy(rc, (char*)buf);
+    XrdSysMutexHelper lock(fr->statsMutex);
+    fr->rdcount++;
+    return rc;
   } else {
     return -EBADF;
   }

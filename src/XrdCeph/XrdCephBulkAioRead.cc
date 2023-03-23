@@ -46,8 +46,8 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
     return -ENOMEM;
   }
 
-  auto tup = operations.find(objname);
-  if (operations.end() == tup) {
+  auto op_data = operations.find(objname);
+  if (operations.end() == op_data) {
     try {
       rop = new librados::ObjectReadOperation;
     } catch (std::bad_alloc&) {
@@ -67,7 +67,7 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
     }
     operations.insert( {objname, std::make_pair(rop, cmpl)} );
   } else {
-    rop = std::get<0>(tup->second);
+    rop = std::get<0>(op_data->second);
   }
   buffers.push_back( std::make_tuple(bl, out_buf, retval) );
 
@@ -79,15 +79,15 @@ void bulkAioRead::submit_and_wait_for_complete() {
   std::string obj_name;
   librados::AioCompletion* cmpl;
   librados::ObjectReadOperation* op;
-  for (auto const& tup: operations) {
-    obj_name = tup.first;
-    op = std::get<0>(tup.second);
-    cmpl = std::get<1>(tup.second);
+  for (auto const& op_data: operations) {
+    obj_name = op_data.first;
+    op = std::get<0>(op_data.second);
+    cmpl = std::get<1>(op_data.second);
     context->aio_operate(obj_name, cmpl, op, 0);
   }
 
-  for (auto const& tup: operations) {
-    cmpl = std::get<1>(tup.second);
+  for (auto const& op_data: operations) {
+    cmpl = std::get<1>(op_data.second);
     cmpl->wait_for_complete();
   }
 };

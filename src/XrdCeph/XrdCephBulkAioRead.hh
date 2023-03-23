@@ -40,7 +40,7 @@ class bulkAioRead {
 
   std::map<size_t, std::pair<librados::ObjectReadOperation*, librados::AioCompletion*>> operations;
   /* {
- *     <file_name>: (<read_op>, <completion>)
+ *     <object_idx>: (<read_op>, <completion>)
  *     ...
  *   } 
  * */

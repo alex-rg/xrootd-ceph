@@ -15,7 +15,7 @@ class bulkAioRead {
  * The interface is similar to the one that ceph's read operation objects has:
  * 1. Instantiate the object.
  * 2. Declare read operations using 'read' method, providing the output buffers, offset and length.
- * 3. Wait for results using 'wait_for_complete' method.
+ * 3. Submitn operation and wait for results using 'submit_and_wait_for_complete' method.
  * 4. Copy results to buffers with 'get_results' method. 
   */ 
   public:
@@ -23,7 +23,7 @@ class bulkAioRead {
   ~bulkAioRead();
 
   void clear();
-  void wait_for_complete();
+  void submit_and_wait_for_complete();
   ssize_t get_results();
   int read(void *out_buf, size_t size, off64_t offset);
 

@@ -924,7 +924,7 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
     }
 
     std::time_t wait_time = std::time(0);
-    readOp.wait_for_complete();
+    readOp.submit_and_wait_for_complete();
     wait_time = std::time(0) - wait_time;
     if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
       logwrapper(
@@ -993,7 +993,7 @@ ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset)
       return rc;
     }
     std::time_t wait_time = std::time(0);
-    readOp.wait_for_complete();
+    readOp.submit_and_wait_for_complete();
     wait_time = std::time(0) - wait_time;
     if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
       logwrapper(

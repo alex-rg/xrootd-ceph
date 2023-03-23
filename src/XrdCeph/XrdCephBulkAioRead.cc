@@ -75,7 +75,7 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
   return 0;
 };
 
-void bulkAioRead::wait_for_complete() {
+void bulkAioRead::submit_and_wait_for_complete() {
   std::string obj_name;
   librados::AioCompletion* cmpl;
   librados::ObjectReadOperation* op;

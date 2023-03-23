@@ -4,10 +4,11 @@
 #include <tuple>
 #include <rados/librados.hpp>
 
-typedef std::tuple<ceph::bufferlist*, char*, int*> ReadOpData;
-typedef void (*logfunc_pointer) (char *, ...);
 
 class bulkAioRead {
+  typedef std::tuple<ceph::bufferlist*, char*, int*> ReadOpData;
+  typedef void (*logfunc_pointer) (char *, ...);
+
   /*
  * Class is used to execute read operations against rados striper files *without* usage of rados striper.
  * Reads are based on ceph read operations.

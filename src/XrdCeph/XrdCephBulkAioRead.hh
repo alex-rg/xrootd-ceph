@@ -24,12 +24,12 @@ class bulkAioRead {
   ~bulkAioRead();
 
   void clear();
-  void submit_and_wait_for_complete();
+  int submit_and_wait_for_complete();
   ssize_t get_results();
   int read(void *out_buf, size_t size, off64_t offset);
 
   private:
-  int addRequest(std::string obj_name, char *out_buf, size_t size, off64_t offset);
+  int addRequest(size_t obj_idx, char *out_buf, size_t size, off64_t offset);
   librados::IoCtx* context;
   std::list<ReadOpData> buffers;
   /* [ 
@@ -38,7 +38,7 @@ class bulkAioRead {
  *   ]
  * */
 
-  std::map<std::string, std::pair<librados::ObjectReadOperation*, librados::AioCompletion*>> operations;
+  std::map<size_t, std::pair<librados::ObjectReadOperation*, librados::AioCompletion*>> operations;
   /* {
  *     <file_name>: (<read_op>, <completion>)
  *     ...

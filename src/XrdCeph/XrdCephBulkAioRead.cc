@@ -41,14 +41,14 @@ void bulkAioRead::clear() {
   operations.clear();
 }
 
-int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off64_t offset) {
+int bulkAioRead::addRequest(size_t obj_idx, char* out_buf, size_t size, off64_t offset) {
   /**
    * Prepare read request for a single ceph object. Private method.
    *
    * Method will allocate all necessary objects to submit read request to ceph.
    * To submit the requests use `submit_and_wait_for_complete` method.
    *
-   * @param objname  name of the object to read
+   * @param obj_idx  number of the object (starting from zero) to read
    * @param out_buf  output buffer, where read results should be stored
    * @param size     number of bytes to read
    * @param offset   offset in bytes where the read should start. Note that the offset is local to the
@@ -76,7 +76,7 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
     return -ENOMEM;
   }
 
-  auto op_data = operations.find(objname);
+  auto op_data = operations.find(obj_idx);
   if (operations.end() == op_data) {
     try {
       rop = new librados::ObjectReadOperation;
@@ -95,7 +95,7 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
       delete rop;
       return -ENOMEM;
     }
-    operations.insert( {objname, std::make_pair(rop, cmpl)} );
+    operations.insert( {obj_idx, std::make_pair(rop, cmpl)} );
   } else {
     rop = std::get<0>(op_data->second);
   }
@@ -105,7 +105,7 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
   return 0;
 }
 
-void bulkAioRead::submit_and_wait_for_complete() {
+int bulkAioRead::submit_and_wait_for_complete() {
   /**
    * Submit previously prepared read requests and wait for their completion
    *
@@ -114,10 +114,28 @@ void bulkAioRead::submit_and_wait_for_complete() {
    */
 
   std::string obj_name;
+  size_t obj_idx;
   librados::AioCompletion* cmpl;
   librados::ObjectReadOperation* op;
+
+
   for (auto const& op_data: operations) {
-    obj_name = op_data.first;
+    obj_idx = op_data.first;
+    //16 bytes for object hex number, 1 for dot and 1 for null-terminator
+    char object_suffix[18];
+    int sp_bytes_written;
+    sp_bytes_written = snprintf(object_suffix, sizeof(object_suffix), ".%016zx", obj_idx);
+    if (sp_bytes_written > (int) sizeof(object_suffix)) {
+      log_func((char*)"Can not fit object suffix into buffer for file %s -- too big\n", file_name.c_str());
+      return -EFBIG;
+    } 
+
+    try {
+      obj_name =  file_name + std::string(object_suffix);
+    } catch (std::bad_alloc&) {
+      log_func((char*)"Can not create object string for file %s)", file_name.c_str());
+      return -ENOMEM;
+    }
     op = std::get<0>(op_data.second);
     cmpl = std::get<1>(op_data.second);
     context->aio_operate(obj_name, cmpl, op, 0);
@@ -127,6 +145,7 @@ void bulkAioRead::submit_and_wait_for_complete() {
     cmpl = std::get<1>(op_data.second);
     cmpl->wait_for_complete();
   }
+  return 0;
 }
 
 ssize_t bulkAioRead::get_results() {
@@ -192,29 +211,17 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   chunk_start = offset % object_size;
 
   while (start_block <= last_block) {
-    //16 bytes for object hex number, 1 for dot and 1 for null-terminator
-    char object_suffix[18];
-    int sp_bytes_written;
-    sp_bytes_written = snprintf(object_suffix, sizeof(object_suffix), ".%016zx", start_block);
-    if (sp_bytes_written > (int) sizeof(object_suffix)) {
-      log_func((char*)"Can not fit object suffix into buffer for file %s\n", file_name.c_str());
-      return -EFBIG;
-    } 
-
-    std::string obj_name;
-    obj_name =  file_name + std::string(object_suffix);
-
     chunk_len = std::min(req_len, object_size - chunk_start);
 
     int rc;
-    rc = addRequest(obj_name, buf_ptr, chunk_len, chunk_start);
+    rc = addRequest(start_block, buf_ptr, chunk_len, chunk_start);
     if (rc < 0) {
       log_func((char*)"Unable to submit async read request, rc=%d\n", rc);
       return rc;
     }
     buf_pos += chunk_len;
     if (buf_pos > req_size) {
-      log_func((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu) of object %s\n", buf_pos, offset, req_size, obj_name.c_str());
+      log_func((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu) of file %s\n", buf_pos, offset, req_size, file_name.c_str());
       return -EINVAL;
     }
     buf_ptr += chunk_len;

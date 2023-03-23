@@ -918,13 +918,13 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
     for (int i = 0; i < n; i++) {
       rc = readOp.read(readV[i].data, readV[i].size, readV[i].offset);
       if (rc < 0) {
-        logwrapper( (char*)"Can not submit read request\n");
+        logwrapper( (char*)"Can not declare read request\n");
         return rc;
       }
     }
 
     std::time_t wait_time = std::time(0);
-    readOp.submit_and_wait_for_complete();
+    rc = readOp.submit_and_wait_for_complete();
     wait_time = std::time(0) - wait_time;
     if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
       logwrapper(
@@ -932,6 +932,10 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
         fr->name.c_str(),
         wait_time
       );
+    }
+    if (rc < 0) {
+      logwrapper( (char*)"Can not submit read requests\n");
+      return rc;
     }
     read_bytes = readOp.get_results();
     XrdSysMutexHelper lock(fr->statsMutex);
@@ -990,10 +994,11 @@ ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset)
     bulkAioRead readOp = bulkAioRead(ioctx, logwrapper, fr->name, fr->objectSize);
     rc = readOp.read(buf, count, offset);
     if (rc < 0) {
+      logwrapper( (char*)"Can not declare read request\n");
       return rc;
     }
     std::time_t wait_time = std::time(0);
-    readOp.submit_and_wait_for_complete();
+    rc = readOp.submit_and_wait_for_complete();
     wait_time = std::time(0) - wait_time;
     if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
       logwrapper(
@@ -1001,6 +1006,10 @@ ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset)
         fr->name.c_str(),
         wait_time
       );
+    }
+    if (rc < 0) {
+      logwrapper( (char*)"Can not submit read request\n");
+      return rc;
     }
     bytes_read = readOp.get_results();
 

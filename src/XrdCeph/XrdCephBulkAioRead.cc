@@ -1,6 +1,15 @@
 #include "XrdCephBulkAioRead.hh"
 
 bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::string filename, size_t object_sz) {
+  /*
+   * Constructor.
+   *
+   * @param ct                Rados IoContext object
+   * @param logfunc_pointer   Pointer to the function that will be used for logging
+   * @param filename          Name of the file (not ceph object!) that is supposed to be read
+   * @param object_sz         Maximum size of the ceph objects that the file is split into
+   *
+   */
   context = ct;
   object_size = object_sz;
   file_name = filename;
@@ -8,10 +17,16 @@ bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::s
 };
 
 bulkAioRead::~bulkAioRead() {
+  /*
+   * Destructor. Just clears dynamically allocate memroy.
+   */
   clear();
 };
 
 void bulkAioRead::clear() {
+  /**
+   * Clear all dynamically alocated memory
+   */
   for (ReadOpData i: buffers){
     delete std::get<0>(i);
     delete std::get<2>(i);
@@ -27,8 +42,23 @@ void bulkAioRead::clear() {
 };
 
 int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off64_t offset) {
+  /**
+   * Prepare read request for a single ceph object. Private method.
+   *
+   * Method will allocate all necessary objects to submit read request to ceph.
+   * To submit the requests use `submit_and_wait_for_complete` method.
+   *
+   * @param objname  name of the object to read
+   * @param out_buf  output buffer, where read results should be stored
+   * @param size     number of bytes to read
+   * @param offset   offset in bytes where the read should start. Note that the offset is local to the
+   *                 ceph object. I.e. if offset is 0 and object is `file1.0000000000000001`, yo'll be
+   *                 reading from the start of the second object of file1, not from its begining.
+   *
+   * @return         zero on success, negative error code on failure
+   */
   ceph::bufferlist *bl;
-  int *retval;
+  int *retval = NULL;
   librados::ObjectReadOperation *rop;
 
   try {
@@ -76,6 +106,13 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
 };
 
 void bulkAioRead::submit_and_wait_for_complete() {
+  /**
+   * Submit previously prepared read requests and wait for their completion
+   *
+   * To prepare read requests use `read` or `addRequest` methods.
+   *
+   */
+
   std::string obj_name;
   librados::AioCompletion* cmpl;
   librados::ObjectReadOperation* op;
@@ -93,6 +130,17 @@ void bulkAioRead::submit_and_wait_for_complete() {
 };
 
 ssize_t bulkAioRead::get_results() {
+  /**
+   * Copy the results of executed read requests from ceph's bufferlists to client's buffers
+   *
+   * Note that this method should be called only after the submission and completion of read
+   * requests, i.e. after `submit_and_wait_for_complete` method.
+   *
+   * @return  cumulative number of bytes read (by all read operations) on success, negative
+   *          error code on failure
+   *
+   */
+
   ceph::bufferlist* bl;
   char *buf;
   int *rc;
@@ -102,6 +150,7 @@ ssize_t bulkAioRead::get_results() {
     buf = std::get<1>(i);
     rc = std::get<2>(i);
     if (*rc < 0) {
+      //Is it possible to get here?
       log_func((char*)"One of the reads failed with rc %d", rc);
       return *rc;
     }
@@ -112,6 +161,21 @@ ssize_t bulkAioRead::get_results() {
 };
 
 int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
+  /**
+   * Declare a read operation for file.
+   *
+   * Read coordinates are global, i.e. valid offsets are from 0 to the <file_size> -1, valid request sizes
+   * are from 1 to <file_size> - <offset>. Method can be called multiple times to declare multiple read
+   * operations on the same file.
+   *
+   * @param out_buf    output buffer, where read results should be stored
+   * @param req_size   number of bytes to read
+   * @param offset     offset in bytes where the read should start. Note that the offset is global,
+   *                   i.e. refers to the whole file, not individual ceph objects
+   *
+   * @return  zero on success, negative error code on failure
+   *
+   */
 
   size_t start_block, last_block, buf_pos, chunk_len, chunk_start, req_len;
   char *buf_ptr;

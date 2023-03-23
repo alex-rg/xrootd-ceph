@@ -1,8 +1,8 @@
 #include "XrdCephBulkAioRead.hh"
 
-bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::string filename, size_t block_sz) {
+bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::string filename, size_t object_sz) {
   context = ct;
-  block_size = block_sz;
+  object_size = object_sz;
   file_name = filename;
   log_func = logwrapper;
 };
@@ -121,11 +121,11 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   }
 
   req_len = req_size;
-  start_block = offset / block_size;
-  last_block = (offset + req_len - 1) / block_size;
+  start_block = offset / object_size;
+  last_block = (offset + req_len - 1) / object_size;
   buf_ptr = (char*) out_buf;
   buf_pos = 0;
-  chunk_start = offset % block_size;
+  chunk_start = offset % object_size;
 
   while (start_block <= last_block) {
     //16 bytes for object hex number, 1 for dot and 1 for null-terminator
@@ -140,7 +140,7 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
     std::string obj_name;
     obj_name =  file_name + std::string(object_suffix);
 
-    chunk_len = std::min(req_len, block_size - chunk_start);
+    chunk_len = std::min(req_len, object_size - chunk_start);
 
     int rc;
     rc = addRequest(obj_name, buf_ptr, chunk_len, chunk_start);

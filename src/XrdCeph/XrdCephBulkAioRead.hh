@@ -19,7 +19,7 @@ class bulkAioRead {
  * 4. Copy results to buffers with 'get_results' method. 
   */ 
   public:
-  bulkAioRead(librados::IoCtx *ct, logfunc_pointer ptr, std::string filename, size_t block_size);
+  bulkAioRead(librados::IoCtx *ct, logfunc_pointer ptr, std::string filename, size_t object_size);
   ~bulkAioRead();
 
   void clear();
@@ -46,5 +46,5 @@ class bulkAioRead {
 
   std::string file_name;
   logfunc_pointer log_func; 
-  size_t block_size;
+  size_t object_size;
 };

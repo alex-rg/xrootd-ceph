@@ -14,14 +14,14 @@ bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::s
   object_size = object_sz;
   file_name = filename;
   log_func = logwrapper;
-};
+}
 
 bulkAioRead::~bulkAioRead() {
   /*
    * Destructor. Just clears dynamically allocate memroy.
    */
   clear();
-};
+}
 
 void bulkAioRead::clear() {
   /**
@@ -39,7 +39,7 @@ void bulkAioRead::clear() {
     delete op;
   }
   operations.clear();
-};
+}
 
 int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off64_t offset) {
   /**
@@ -103,7 +103,7 @@ int bulkAioRead::addRequest(std::string objname, char* out_buf, size_t size, off
 
   rop->read(offset, size, bl, retval);
   return 0;
-};
+}
 
 void bulkAioRead::submit_and_wait_for_complete() {
   /**
@@ -127,7 +127,7 @@ void bulkAioRead::submit_and_wait_for_complete() {
     cmpl = std::get<1>(op_data.second);
     cmpl->wait_for_complete();
   }
-};
+}
 
 ssize_t bulkAioRead::get_results() {
   /**
@@ -158,7 +158,7 @@ ssize_t bulkAioRead::get_results() {
     res += bl->length();
   }
   return res;
-};
+}
 
 int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   /**
@@ -224,4 +224,4 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
     req_len = req_len - chunk_len;
   }
   return 0;   
-};
+}

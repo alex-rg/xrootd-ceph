@@ -1,7 +1,7 @@
 #include "XrdCephBulkAioRead.hh"
 
 bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::string filename, size_t object_sz) {
-  /*
+  /**
    * Constructor.
    *
    * @param ct                Rados IoContext object
@@ -17,8 +17,8 @@ bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::s
 }
 
 bulkAioRead::~bulkAioRead() {
-  /*
-   * Destructor. Just clears dynamically allocate memroy.
+  /**
+   * Destructor. Just clears dynamically allocated memroy.
    */
   clear();
 }
@@ -45,15 +45,16 @@ int bulkAioRead::addRequest(size_t obj_idx, char* out_buf, size_t size, off64_t 
   /**
    * Prepare read request for a single ceph object. Private method.
    *
-   * Method will allocate all necessary objects to submit read request to ceph.
-   * To submit the requests use `submit_and_wait_for_complete` method.
+   * Method will allocate all (well, almost, except the string for the object name)
+   * necessary objects to submit read request to ceph. To submit the requests use
+   * `submit_and_wait_for_complete` method.
    *
    * @param obj_idx  number of the object (starting from zero) to read
    * @param out_buf  output buffer, where read results should be stored
    * @param size     number of bytes to read
    * @param offset   offset in bytes where the read should start. Note that the offset is local to the
-   *                 ceph object. I.e. if offset is 0 and object is `file1.0000000000000001`, yo'll be
-   *                 reading from the start of the second object of file1, not from its begining.
+   *                 ceph object. I.e. if offset is 0 and object number is 1, yo'll be reading from the
+   *                 start of the second object, not from the begining of the file.
    *
    * @return         zero on success, negative error code on failure
    */
@@ -110,6 +111,8 @@ int bulkAioRead::submit_and_wait_for_complete() {
    * Submit previously prepared read requests and wait for their completion
    *
    * To prepare read requests use `read` or `addRequest` methods.
+   *
+   * @return  zero on success, negative error code on failure
    *
    */
 

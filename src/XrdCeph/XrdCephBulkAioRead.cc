@@ -84,7 +84,7 @@ int bulkAioRead::submit_and_wait_for_complete() {
     if (sp_bytes_written >= (int) sizeof(object_suffix)) {
       log_func((char*)"Can not fit object suffix into buffer for file %s -- too big\n", file_name.c_str());
       return -EFBIG;
-    } 
+    }
 
     try {
       obj_name =  file_name + std::string(object_suffix);
@@ -182,5 +182,5 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
     chunk_start = 0;
     req_len = req_len - chunk_len;
   }
-  return 0;   
+  return 0;
 }

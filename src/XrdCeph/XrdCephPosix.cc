@@ -913,7 +913,7 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
     if (0 == ioctx) {
       return -EINVAL;
     }
-    bulkAioRead readOp = bulkAioRead(ioctx, logwrapper, fr->name, fr->objectSize);
+    bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
 
     for (int i = 0; i < n; i++) {
       rc = readOp.read(readV[i].data, readV[i].size, readV[i].offset);
@@ -991,7 +991,7 @@ ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset)
       return -EINVAL;
     }
 
-    bulkAioRead readOp = bulkAioRead(ioctx, logwrapper, fr->name, fr->objectSize);
+    bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
     rc = readOp.read(buf, count, offset);
     if (rc < 0) {
       logwrapper( (char*)"Can not declare read request\n");

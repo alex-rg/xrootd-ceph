@@ -1,5 +1,6 @@
 #include "XrdCephBulkAioRead.hh"
 
+
 bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::string filename, size_t object_sz) {
   /**
    * Constructor.
@@ -27,17 +28,7 @@ void bulkAioRead::clear() {
   /**
    * Clear all dynamically alocated memory
    */
-  for (ReadOpData i: buffers){
-    delete std::get<0>(i);
-    delete std::get<2>(i);
-  }
   buffers.clear();
-  for (auto const& tup: operations) {
-    librados::ObjectReadOperation *op = std::get<0>(tup.second);
-    librados::AioCompletion *cmpl = std::get<1>(tup.second);
-    cmpl->release();
-    delete op;
-  }
   operations.clear();
 }
 
@@ -58,51 +49,17 @@ int bulkAioRead::addRequest(size_t obj_idx, char* out_buf, size_t size, off64_t 
    *
    * @return         zero on success, negative error code on failure
    */
-  ceph::bufferlist *bl;
-  int *retval = NULL;
-  librados::ObjectReadOperation *rop;
 
-  try {
-    bl = new ceph::bufferlist();
+  try{
+    auto &op_data = operations[obj_idx];
+    //When we start using C++17, the next two lines can be merged
+    buffers.emplace_back(out_buf);
+    auto &buf = buffers.back();
+    op_data.ceph_read_op.read(offset, size, &buf.bl, &buf.rc);
   } catch (std::bad_alloc&) {
-    log_func((char*)"Can not allocate buffer for read (%lu, %lu)", offset, size);
-    return -ENOMEM;
+   log_func((char*)"Memory allocation failed while reading file %s", file_name.c_str());
+   return -ENOMEM;
   }
-
-  try {
-    retval = new int;
-  } catch (std::bad_alloc&) {
-    log_func((char*)"Can not allocate int for read's retval (%lu, %lu)", offset, size);
-    delete bl;
-    return -ENOMEM;
-  }
-
-  auto op_data = operations.find(obj_idx);
-  if (operations.end() == op_data) {
-    try {
-      rop = new librados::ObjectReadOperation;
-    } catch (std::bad_alloc&) {
-      log_func((char*)"Can not allocate int for read object op (%lu, %lu)", offset, size);
-      delete bl;
-      delete retval;
-      return -ENOMEM;
-    }
-
-    librados::AioCompletion *cmpl = librados::Rados::aio_create_completion();
-    if (0 == cmpl) {
-      log_func((char*)"Can not create completion for read (%lu, %lu)", offset, size);
-      delete bl;
-      delete retval;
-      delete rop;
-      return -ENOMEM;
-    }
-    operations.insert( {obj_idx, std::make_pair(rop, cmpl)} );
-  } else {
-    rop = std::get<0>(op_data->second);
-  }
-  buffers.push_back( std::make_tuple(bl, out_buf, retval) );
-
-  rop->read(offset, size, bl, retval);
   return 0;
 }
 
@@ -117,18 +74,14 @@ int bulkAioRead::submit_and_wait_for_complete() {
    */
 
   std::string obj_name;
-  size_t obj_idx;
-  librados::AioCompletion* cmpl;
-  librados::ObjectReadOperation* op;
 
-
-  for (auto const& op_data: operations) {
-    obj_idx = op_data.first;
+  for (auto & op_data: operations) {
+    size_t obj_idx = op_data.first;
     //16 bytes for object hex number, 1 for dot and 1 for null-terminator
     char object_suffix[18];
     int sp_bytes_written;
     sp_bytes_written = snprintf(object_suffix, sizeof(object_suffix), ".%016zx", obj_idx);
-    if (sp_bytes_written > (int) sizeof(object_suffix)) {
+    if (sp_bytes_written >= (int) sizeof(object_suffix)) {
       log_func((char*)"Can not fit object suffix into buffer for file %s -- too big\n", file_name.c_str());
       return -EFBIG;
     } 
@@ -139,14 +92,11 @@ int bulkAioRead::submit_and_wait_for_complete() {
       log_func((char*)"Can not create object string for file %s)", file_name.c_str());
       return -ENOMEM;
     }
-    op = std::get<0>(op_data.second);
-    cmpl = std::get<1>(op_data.second);
-    context->aio_operate(obj_name, cmpl, op, 0);
+    context->aio_operate(obj_name, op_data.second.cmpl, &op_data.second.ceph_read_op, 0);
   }
 
-  for (auto const& op_data: operations) {
-    cmpl = std::get<1>(op_data.second);
-    cmpl->wait_for_complete();
+  for (auto& op_data: operations) {
+    op_data.second.cmpl.wait_for_complete();
   }
   return 0;
 }
@@ -163,21 +113,15 @@ ssize_t bulkAioRead::get_results() {
    *
    */
 
-  ceph::bufferlist* bl;
-  char *buf;
-  int *rc;
   ssize_t res = 0;
-  for (ReadOpData i: buffers) {
-    bl = std::get<0>(i);
-    buf = std::get<1>(i);
-    rc = std::get<2>(i);
-    if (*rc < 0) {
+  for (ReadOpData &op_data: buffers) {
+    if (op_data.rc < 0) {
       //Is it possible to get here?
-      log_func((char*)"One of the reads failed with rc %d", rc);
-      return *rc;
+      log_func((char*)"One of the reads failed with rc %d", op_data.rc);
+      return op_data.rc;
     }
-    bl->begin().copy(bl->length(), buf);
-    res += bl->length();
+    op_data.bl.begin().copy(op_data.bl.length(), op_data.out_buf);
+    res += op_data.bl.length();
   }
   return res;
 }

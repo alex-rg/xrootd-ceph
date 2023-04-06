@@ -34,6 +34,9 @@
 #include <dirent.h>
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysXAttr.hh>
+#include "XrdOuc/XrdOucIOVec.hh"
+
+#include "XrdCephBulkAioRead.hh"
 
 // simple logging for XrdCeph buffering code
 #define XRDCEPHLOGLEVEL 1
@@ -46,6 +49,7 @@
 #else 
   #define LOGCEPH(x) 
 #endif 
+
 
 class XrdSfsAio;
 typedef void(AioCB)(XrdSfsAio*, size_t);
@@ -60,7 +64,10 @@ off64_t ceph_posix_lseek64(int fd, off64_t offset, int whence);
 ssize_t ceph_posix_write(int fd, const void *buf, size_t count);
 ssize_t ceph_posix_pwrite(int fd, const void *buf, size_t count, off64_t offset);
 ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb);
+ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n);
+ssize_t ceph_striper_readv(int fd, XrdOucIOVec *readV, int n);
 ssize_t ceph_posix_read(int fd, void *buf, size_t count);
+ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset);
 ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset);
 ssize_t ceph_aio_read(int fd, XrdSfsAio *aiop, AioCB *cb);
 int ceph_posix_fstat(int fd, struct stat *buf);
@@ -79,6 +86,7 @@ int ceph_posix_listxattrs(XrdOucEnv* env, const char* path, XrdSysXAttr::AList *
 int ceph_posix_flistxattrs(int fd, XrdSysXAttr::AList **aPL, int getSz);
 void ceph_posix_freexattrlist(XrdSysXAttr::AList *aPL);
 int ceph_posix_statfs(long long *totalSpace, long long *freeSpace);
+int ceph_posix_stat_pool(char const *poolName, long long *usedSpace); 
 int ceph_posix_truncate(XrdOucEnv* env, const char *pathname, unsigned long long size);
 int ceph_posix_ftruncate(int fd, unsigned long long size);
 int ceph_posix_unlink(XrdOucEnv* env, const char *pathname);

@@ -44,12 +44,16 @@
 #include <chrono>
 #include <limits>
 #include <pthread.h>
+
 #include "XrdSfs/XrdSfsAio.hh"
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdOuc/XrdOucName2Name.hh"
 #include "XrdSys/XrdSysPlatform.hh"
+#include <XrdOss/XrdOss.hh>
+#include "XrdOuc/XrdOucIOVec.hh"
 
 #include "XrdCeph/XrdCephPosix.hh"
+#include "XrdCeph/XrdCephOss.hh"
 
 #include "XrdSfs/XrdSfsFlags.hh" // for the OFFLINE flag status 
 
@@ -702,6 +706,8 @@ int ceph_posix_open(XrdOucEnv* env, const char *pathname, int flags, mode_t mode
  
   bool fileExists = (rc != -ENOENT); //Make clear what condition we are testing
 
+  logwrapper((char*)"Access Mode: %s flags&O_ACCMODE %d ", pathname, flags);
+
   if ((flags&O_ACCMODE) == O_RDONLY) {  // Access mode is READ
 
     if (fileExists) {
@@ -923,6 +929,72 @@ ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb) {
   }
 }
 
+ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
+  CephFileRef* fr = getFileRef(fd);
+  if (fr) {
+    // TODO implement proper logging level for this plugin - this should be only debug
+    //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
+    if ((fr->flags & O_WRONLY) != 0) {
+      return -EBADF;
+    }
+
+    ssize_t read_bytes;
+    int rc;
+
+    librados::IoCtx *ioctx = getIoCtx(*fr);
+    if (0 == ioctx) {
+      return -EINVAL;
+    }
+    bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
+
+    for (int i = 0; i < n; i++) {
+      rc = readOp.read(readV[i].data, readV[i].size, readV[i].offset);
+      if (rc < 0) {
+        logwrapper( (char*)"Can not declare read request\n");
+        return rc;
+      }
+    }
+
+    std::time_t wait_time = std::time(0);
+    rc = readOp.submit_and_wait_for_complete();
+    wait_time = std::time(0) - wait_time;
+    if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+      logwrapper(
+        (char*)"Waiting for AIO results in readv for %s took %ld sedonds, too long!t\n",
+        fr->name.c_str(),
+        wait_time
+      );
+    }
+    if (rc < 0) {
+      logwrapper( (char*)"Can not submit read requests\n");
+      return rc;
+    }
+    read_bytes = readOp.get_results();
+    XrdSysMutexHelper lock(fr->statsMutex);
+    //Should we consider readv as a single operation?
+    fr->rdcount += 1;
+    return read_bytes;
+  } else {
+    return -EBADF;
+  }
+}
+
+ssize_t ceph_striper_readv(int fd, XrdOucIOVec *readV, int n) {
+  /**
+   * Sequential, striper-based readv implementation.
+   */
+  ssize_t nbytes = 0, curCount = 0;
+  for (int i=0; i<n; i++) {
+    curCount = ceph_posix_pread(fd, (void *)readV[i].data, (size_t)readV[i].size, (off_t)readV[i].offset);
+    if (curCount != readV[i].size) {
+      if (curCount < 0) return curCount;
+        return -ESPIPE;
+    }
+    nbytes += curCount;
+  }
+  return nbytes;
+}
+
 ssize_t ceph_posix_read(int fd, void *buf, size_t count) {
   CephFileRef* fr = getFileRef(fd);
   if (fr) {
@@ -943,6 +1015,59 @@ ssize_t ceph_posix_read(int fd, void *buf, size_t count) {
     fr->offset += rc;
     fr->rdcount++;
     return rc;
+  } else {
+    return -EBADF;
+  }
+}
+
+ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset) {
+  //The same as pread, but do not relies on rados striper library. Uses direct atomic
+  //reads from ceph object (see BulkAioRead class for details).
+  CephFileRef* fr = getFileRef(fd);
+  if (fr) {
+    // TODO implement proper logging level for this plugin - this should be only debug
+    //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
+    if ((fr->flags & O_WRONLY) != 0) {
+      return -EBADF;
+    }
+
+    int rc;
+    ssize_t bytes_read;
+
+    librados::IoCtx *ioctx = getIoCtx(*fr);
+    if (0 == ioctx) {
+      return -EINVAL;
+    }
+
+    bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
+    rc = readOp.read(buf, count, offset);
+    if (rc < 0) {
+      logwrapper( (char*)"Can not declare read request\n");
+      return rc;
+    }
+    std::time_t wait_time = std::time(0);
+    rc = readOp.submit_and_wait_for_complete();
+    wait_time = std::time(0) - wait_time;
+    if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+      logwrapper(
+        (char*)"Waiting for AIO results in pread for %s took %ld sedonds, too long!t\n",
+        fr->name.c_str(),
+        wait_time
+      );
+    }
+    if (rc < 0) {
+      logwrapper( (char*)"Can not submit read request\n");
+      return rc;
+    }
+    bytes_read = readOp.get_results();
+
+    if (bytes_read > 0) {
+      XrdSysMutexHelper lock(fr->statsMutex);
+      fr->rdcount++;
+    } else {
+      logwrapper( (char*)"Error while read\n");
+    }
+    return bytes_read;
   } else {
     return -EBADF;
   }
@@ -1036,7 +1161,7 @@ ssize_t ceph_aio_read(int fd, XrdSfsAio *aiop, AioCB *cb) {
 int ceph_posix_fstat(int fd, struct stat *buf) {
   CephFileRef* fr = getFileRef(fd);
   if (fr) {
-    logwrapper((char*)"ceph_stat: fd %d", fd);
+    logwrapper((char*)__FUNCTION__,": fd %d", fd);
     // minimal stat : only size and times are filled
     // atime, mtime and ctime are set all to the same value
     // mode is set arbitrarily to 0666 | S_IFREG
@@ -1062,7 +1187,7 @@ int ceph_posix_fstat(int fd, struct stat *buf) {
 }
 
 int ceph_posix_stat(XrdOucEnv* env, const char *pathname, struct stat *buf) {
-  logwrapper((char*)"ceph_stat: %s", pathname);
+  logwrapper((char*)__FUNCTION__, pathname);
   // minimal stat : only size and times are filled
   // atime, mtime and ctime are set all to the same value
   // mode is set arbitrarily to 0666 | S_IFREG
@@ -1289,6 +1414,50 @@ int ceph_posix_statfs(long long *totalSpace, long long *freeSpace) {
     *freeSpace = result.kb_avail * 1024;
   }
   return rc;
+}
+
+/**
+ *
+ * @brief Return the amount of space used in a pool.
+ * @details This function -
+ *   Obtains the statistics that librados holds on a pool
+ *   Calculates the number of bytes allocated to the pool
+ * @params
+ *   poolName: (in) the name of the pool to query
+ *   usedSpace: (out) the number of bytes used in the pool
+ * @return 
+ *   success or failure status
+ *
+ * Implementation:
+ * Jyothish Thomas	STFC RAL, jyothish.thomas@stfc.ac.uk, 2022
+ * Ian Johnson		STFC RAL, ian.johnson@stfc.ac.uk, 2022, 2023
+ *
+ */
+
+int ceph_posix_stat_pool(char const *poolName, long long *usedSpace) {
+
+  logwrapper((char*)__FUNCTION__, poolName);
+  // get the poolIdx to use
+  int cephPoolIdx = getCephPoolIdxAndIncrease();
+  librados::Rados* cluster = checkAndCreateCluster(cephPoolIdx);
+  if (0 == cluster) {
+     return -EINVAL;
+  }
+
+  std::list<std::string> poolNames({poolName});
+  std::map<std::string, librados::pool_stat_t> stat;
+
+  if (cluster->get_pool_stats(poolNames, stat) < 0) {
+
+    logwrapper((char*)"Unable to get_pool_stats for pool ", poolName);
+    return -EINVAL; 
+
+  } else {
+ 
+    *usedSpace = stat[poolName].num_kb * 1024;
+    return XrdOssOK;
+
+  }
 }
 
 static int ceph_posix_internal_truncate(const CephFile &file, unsigned long long size) {

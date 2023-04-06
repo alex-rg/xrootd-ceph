@@ -59,7 +59,20 @@ ssize_t XrdCephOssFile::Read(off_t offset, size_t blen) {
 }
 
 ssize_t XrdCephOssFile::Read(void *buff, off_t offset, size_t blen) {
-  return ceph_posix_pread(m_fd, buff, blen, offset);
+  ssize_t retval;
+  if (m_cephOss->m_useDefaultPreadAlg) {
+    retval = ceph_posix_pread(m_fd, buff, blen, offset);
+  } else {
+    retval = ceph_posix_atomic_pread(m_fd, buff, blen, offset);
+    if (retval == -ENOENT) {
+      //This might be a sparse file, so let's try striper read
+      retval = ceph_posix_pread(m_fd, buff, blen, offset);
+      if (retval >= 0) {
+        XrdCephEroute.Say("WARNING! The file seem to be sparse, this is not expected");
+      }
+    }
+  }
+  return retval;
 }
 
 static void aioReadCallback(XrdSfsAio *aiop, size_t rc) {
@@ -74,6 +87,24 @@ int XrdCephOssFile::Read(XrdSfsAio *aiop) {
 ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
   return Read(buff, offset, blen);
 }
+
+ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
+  ssize_t retval;
+  if (m_cephOss->m_useDefaultReadvAlg) {
+    retval = ceph_striper_readv(m_fd, readV, n);
+  } else {
+    retval = ceph_async_readv(m_fd, readV, n);
+    if (retval == -ENOENT) {
+      //This might be a sparse file, so let's try striper read
+      retval = ceph_striper_readv(m_fd, readV, n);
+      if (retval >= 0) {
+        XrdCephEroute.Say("WARNING! The file seem to be sparse, this is not expected");
+      }
+    }
+  }
+  return retval;
+}
+
 
 int XrdCephOssFile::Fstat(struct stat *buff) {
   return ceph_posix_fstat(m_fd, buff);

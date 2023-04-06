@@ -50,6 +50,10 @@
 //! In case one of the two only has a default, it will be applied for both plugins.
 //------------------------------------------------------------------------------
 
+//If read operation performed by bulkAioRead class
+//takes more than this (seconds), print warning message
+#define XRDCEPH_AIO_WAIT_THRESH 15
+
 class XrdCephOss : public XrdOss {
 public:
   XrdCephOss(const char *, XrdSysError &);
@@ -65,11 +69,17 @@ public:
   virtual int     Rename(const char *, const char *, XrdOucEnv *eP1=0, XrdOucEnv *eP2=0);
   virtual int     Stat(const char *, struct stat *, int opts=0, XrdOucEnv *eP=0);
   virtual int     StatFS(const char *path, char *buff, int &blen, XrdOucEnv *eP=0);
+  virtual int     StatLS(XrdOucEnv &env, const char *path, char *buff, int &blen);  
   virtual int     StatVS(XrdOssVSInfo *sP, const char *sname=0, int updt=0);
   virtual int     Truncate(const char *, unsigned long long, XrdOucEnv *eP=0);
   virtual int     Unlink(const char *path, int Opts=0, XrdOucEnv *eP=0);
   virtual XrdOssDF *newDir(const char *tident);
   virtual XrdOssDF *newFile(const char *tident);
+
+  //If set to 1, striper-based algorithm is used for pread
+  int m_useDefaultPreadAlg = 0;
+  //If set to 1, striper-based algorithm is used for readv
+  int m_useDefaultReadvAlg = 0;
 
   private:
     bool m_configBufferEnable=false; //! config option for buffering
@@ -78,7 +88,7 @@ public:
     bool m_configReadVEnable=false; //! enable readV decorator
     std::string m_configReadVAlgName="passthrough"; // readV algorithm type
     size_t m_configMaxSimulBufferCount=10;  //! max number of buffers in a single Oss instance (.e.g simul. reads)
-
+    std::string m_configPoolnames;
 };
 
 #endif /* __CEPH_OSS_HH__ */

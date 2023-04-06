@@ -46,6 +46,9 @@ class bulkAioRead {
     void wait_for_complete() {
       ptr->wait_for_complete();
     }
+    int get_return_value() {
+      return ptr->get_return_value();
+    }
     operator librados::AioCompletion*() {return ptr;}
   };
 

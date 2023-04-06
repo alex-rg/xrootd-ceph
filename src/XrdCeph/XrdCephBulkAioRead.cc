@@ -75,7 +75,7 @@ int bulkAioRead::submit_and_wait_for_complete() {
 
   std::string obj_name;
 
-  for (auto & op_data: operations) {
+  for (auto &op_data: operations) {
     size_t obj_idx = op_data.first;
     //16 bytes for object hex number, 1 for dot and 1 for null-terminator
     char object_suffix[18];
@@ -95,8 +95,13 @@ int bulkAioRead::submit_and_wait_for_complete() {
     context->aio_operate(obj_name, op_data.second.cmpl, &op_data.second.ceph_read_op, 0);
   }
 
-  for (auto& op_data: operations) {
+  for (auto &op_data: operations) {
     op_data.second.cmpl.wait_for_complete();
+    int rval = op_data.second.cmpl.get_return_value();
+    if (rval < 0) {
+      log_func((char*)"Read of the object %ld for file %s failed", op_data.first, file_name.c_str());
+      return rval;
+    }
   }
   return 0;
 }

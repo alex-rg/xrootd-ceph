@@ -53,6 +53,7 @@ ssize_t ceph_posix_write(int fd, const void *buf, size_t count);
 ssize_t ceph_posix_pwrite(int fd, const void *buf, size_t count, off64_t offset);
 ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb);
 ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n);
+ssize_t ceph_striper_readv(int fd, XrdOucIOVec *readV, int n);
 ssize_t ceph_posix_read(int fd, void *buf, size_t count);
 ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset);
 ssize_t ceph_posix_pread(int fd, void *buf, size_t count, off64_t offset);

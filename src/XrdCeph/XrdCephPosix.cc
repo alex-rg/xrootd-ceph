@@ -947,6 +947,22 @@ ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
   }
 }
 
+ssize_t ceph_striper_readv(int fd, XrdOucIOVec *readV, int n) {
+  /**
+   * Sequential, striper-based readv implementation.
+   */
+  ssize_t nbytes = 0, curCount = 0;
+  for (int i=0; i<n; i++) {
+    curCount = ceph_posix_pread(fd, (void *)readV[i].data, (size_t)readV[i].size, (off_t)readV[i].offset);
+    if (curCount != readV[i].size) {
+      if (curCount < 0) return curCount;
+        return -ESPIPE;
+    }
+    nbytes += curCount;
+  }
+  return nbytes;
+}
+
 ssize_t ceph_posix_read(int fd, void *buf, size_t count) {
   CephFileRef* fr = getFileRef(fd);
   if (fr) {

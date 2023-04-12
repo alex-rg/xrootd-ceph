@@ -905,6 +905,10 @@ ssize_t ceph_nonstriper_readv(int fd, XrdOucIOVec *readV, int n) {
     if ((fr->flags & O_WRONLY) != 0) {
       return -EBADF;
     }
+    if (fr->nbStripes != 1) {
+      //Non-striper based read method works only with a single stripe
+      return -ENOTSUP;
+    }
 
     ssize_t read_bytes;
     int rc;
@@ -997,6 +1001,10 @@ ssize_t ceph_posix_nonstriper_pread(int fd, void *buf, size_t count, off64_t off
     //logwrapper((char*)"ceph_read: for fd %d, count=%d", fd, count);
     if ((fr->flags & O_WRONLY) != 0) {
       return -EBADF;
+    }
+    if (fr->nbStripes != 1) {
+      //Non-striper based read method works only with a single stripe
+      return -ENOTSUP;
     }
 
     int rc;

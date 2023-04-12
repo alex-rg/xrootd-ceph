@@ -136,7 +136,7 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
    * Declare a read operation for file.
    *
    * Read coordinates are global, i.e. valid offsets are from 0 to the <file_size> -1, valid request sizes
-   * are from 1 to <file_size> - <offset>. Method can be called multiple times to declare multiple read
+   * are from 0 to INF. Method can be called multiple times to declare multiple read
    * operations on the same file.
    *
    * @param out_buf    output buffer, where read results should be stored
@@ -152,7 +152,8 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   char *buf_ptr;
 
   if (req_size == 0) {
-    return -EINVAL;
+    log_func((char*)"Zero-length read request for file %s, probably client error", file_name.c_str());
+    return 0;
   }
 
   req_len = req_size;

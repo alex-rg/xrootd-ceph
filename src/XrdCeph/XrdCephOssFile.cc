@@ -63,7 +63,7 @@ ssize_t XrdCephOssFile::Read(void *buff, off_t offset, size_t blen) {
   if (m_cephOss->m_useDefaultPreadAlg) {
     retval = ceph_posix_pread(m_fd, buff, blen, offset);
   } else {
-    retval = ceph_posix_atomic_pread(m_fd, buff, blen, offset);
+    retval = ceph_posix_nonstriper_pread(m_fd, buff, blen, offset);
     if (retval == -ENOENT) {
       //This might be a sparse file, so let's try striper read
       retval = ceph_posix_pread(m_fd, buff, blen, offset);
@@ -93,7 +93,7 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
   if (m_cephOss->m_useDefaultReadvAlg) {
     retval = ceph_striper_readv(m_fd, readV, n);
   } else {
-    retval = ceph_async_readv(m_fd, readV, n);
+    retval = ceph_nonstriper_readv(m_fd, readV, n);
     if (retval == -ENOENT) {
       //This might be a sparse file, so let's try striper read
       retval = ceph_striper_readv(m_fd, readV, n);

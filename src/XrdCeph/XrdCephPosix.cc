@@ -897,7 +897,7 @@ ssize_t ceph_aio_write(int fd, XrdSfsAio *aiop, AioCB *cb) {
   }
 }
 
-ssize_t ceph_async_readv(int fd, XrdOucIOVec *readV, int n) {
+ssize_t ceph_nonstriper_readv(int fd, XrdOucIOVec *readV, int n) {
   CephFileRef* fr = getFileRef(fd);
   if (fr) {
     // TODO implement proper logging level for this plugin - this should be only debug
@@ -988,7 +988,7 @@ ssize_t ceph_posix_read(int fd, void *buf, size_t count) {
   }
 }
 
-ssize_t ceph_posix_atomic_pread(int fd, void *buf, size_t count, off64_t offset) {
+ssize_t ceph_posix_nonstriper_pread(int fd, void *buf, size_t count, off64_t offset) {
   //The same as pread, but do not relies on rados striper library. Uses direct atomic
   //reads from ceph object (see BulkAioRead class for details).
   CephFileRef* fr = getFileRef(fd);

@@ -28,8 +28,8 @@ void bulkAioRead::clear() {
   /**
    * Clear all dynamically alocated memory
    */
-  buffers.clear();
   operations.clear();
+  buffers.clear();
 }
 
 int bulkAioRead::addRequest(size_t obj_idx, char* out_buf, size_t size, off64_t offset) {

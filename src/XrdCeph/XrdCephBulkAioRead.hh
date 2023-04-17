@@ -24,7 +24,6 @@ class bulkAioRead {
    */ 
   public:
   bulkAioRead(librados::IoCtx *ct, logfunc_pointer ptr, std::string filename, size_t object_size);
-  bulkAioRead(bulkAioRead&& tmp);
   ~bulkAioRead();
 
   void clear();

@@ -39,6 +39,9 @@ class bulkAioRead {
     public:
     CmplPtr() {
       ptr = librados::Rados::aio_create_completion();
+      if (NULL == ptr) {
+        throw std::bad_alloc();
+      }
     }
     ~CmplPtr() {
       if (loaded && ! ptr->is_complete()) {

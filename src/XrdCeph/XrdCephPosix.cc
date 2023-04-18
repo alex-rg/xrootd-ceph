@@ -917,35 +917,41 @@ ssize_t ceph_nonstriper_readv(int fd, XrdOucIOVec *readV, int n) {
     if (0 == ioctx) {
       return -EINVAL;
     }
-    bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
 
-    for (int i = 0; i < n; i++) {
-      rc = readOp.read(readV[i].data, readV[i].size, readV[i].offset);
+    try {
+      //Constructor can throw bad alloc
+      bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
+
+      for (int i = 0; i < n; i++) {
+        rc = readOp.read(readV[i].data, readV[i].size, readV[i].offset);
+        if (rc < 0) {
+          logwrapper( (char*)"Can not declare read request\n");
+          return rc;
+        }
+      }
+
+      std::time_t wait_time = std::time(0);
+      rc = readOp.submit_and_wait_for_complete();
+      wait_time = std::time(0) - wait_time;
+      if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+        logwrapper(
+          (char*)"Waiting for AIO results in readv for %s took %ld sedonds, too long!t\n",
+          fr->name.c_str(),
+          wait_time
+        );
+      }
       if (rc < 0) {
-        logwrapper( (char*)"Can not declare read request\n");
+        logwrapper( (char*)"Can not submit read requests\n");
         return rc;
       }
+      read_bytes = readOp.get_results();
+      XrdSysMutexHelper lock(fr->statsMutex);
+      //We consider readv as a single operation
+      fr->rdcount += 1;
+      return read_bytes;
+    } catch(std::bad_alloc&) {
+      return -ENOMEM;
     }
-
-    std::time_t wait_time = std::time(0);
-    rc = readOp.submit_and_wait_for_complete();
-    wait_time = std::time(0) - wait_time;
-    if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
-      logwrapper(
-        (char*)"Waiting for AIO results in readv for %s took %ld sedonds, too long!t\n",
-        fr->name.c_str(),
-        wait_time
-      );
-    }
-    if (rc < 0) {
-      logwrapper( (char*)"Can not submit read requests\n");
-      return rc;
-    }
-    read_bytes = readOp.get_results();
-    XrdSysMutexHelper lock(fr->statsMutex);
-    //Should we consider readv as a single operation?
-    fr->rdcount += 1;
-    return read_bytes;
   } else {
     return -EBADF;
   }
@@ -1015,35 +1021,40 @@ ssize_t ceph_posix_nonstriper_pread(int fd, void *buf, size_t count, off64_t off
       return -EINVAL;
     }
 
-    bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
-    rc = readOp.read(buf, count, offset);
-    if (rc < 0) {
-      logwrapper( (char*)"Can not declare read request\n");
-      return rc;
-    }
-    std::time_t wait_time = std::time(0);
-    rc = readOp.submit_and_wait_for_complete();
-    wait_time = std::time(0) - wait_time;
-    if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
-      logwrapper(
-        (char*)"Waiting for AIO results in pread for %s took %ld sedonds, too long!t\n",
-        fr->name.c_str(),
-        wait_time
-      );
-    }
-    if (rc < 0) {
-      logwrapper( (char*)"Can not submit read request\n");
-      return rc;
-    }
-    bytes_read = readOp.get_results();
+    try {
+      //Constructor can throw bad alloc
+      bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
+      rc = readOp.read(buf, count, offset);
+      if (rc < 0) {
+        logwrapper( (char*)"Can not declare read request\n");
+        return rc;
+      }
+      std::time_t wait_time = std::time(0);
+      rc = readOp.submit_and_wait_for_complete();
+      wait_time = std::time(0) - wait_time;
+      if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+        logwrapper(
+          (char*)"Waiting for AIO results in pread for %s took %ld sedonds, too long!t\n",
+          fr->name.c_str(),
+          wait_time
+        );
+      }
+      if (rc < 0) {
+        logwrapper( (char*)"Can not submit read request\n");
+        return rc;
+      }
+      bytes_read = readOp.get_results();
 
-    if (bytes_read > 0) {
-      XrdSysMutexHelper lock(fr->statsMutex);
-      fr->rdcount++;
-    } else {
-      logwrapper( (char*)"Error while read\n");
+      if (bytes_read > 0) {
+        XrdSysMutexHelper lock(fr->statsMutex);
+        fr->rdcount++;
+      } else {
+        logwrapper( (char*)"Error while read\n");
+      }
+      return bytes_read;
+    } catch (std::bad_alloc&) {
+      return -ENOMEM;
     }
-    return bytes_read;
   } else {
     return -EBADF;
   }

@@ -60,6 +60,7 @@ ssize_t XrdCephOssFile::Read(off_t offset, size_t blen) {
 
 ssize_t XrdCephOssFile::Read(void *buff, off_t offset, size_t blen) {
   ssize_t retval;
+  std::cerr << "Read data: " << offset << "," << blen << std::endl;
   if (m_cephOss->m_useDefaultPreadAlg) {
     retval = ceph_posix_pread(m_fd, buff, blen, offset);
   } else {
@@ -90,6 +91,11 @@ ssize_t XrdCephOssFile::ReadRaw(void *buff, off_t offset, size_t blen) {
 
 ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
   ssize_t retval;
+  std::cerr << "Readv data: ";
+  for (int i = 0; i < n; i++) {
+    std::cerr << readV[i].offset << "," << readV[i].size << ";";
+  }
+  std::cerr << std::endl;
   if (m_cephOss->m_useDefaultReadvAlg) {
     retval = ceph_striper_readv(m_fd, readV, n);
   } else {

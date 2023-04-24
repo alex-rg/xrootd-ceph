@@ -1,19 +1,17 @@
 #include "XrdCephBulkAioRead.hh"
 
 
-bulkAioRead::bulkAioRead(librados::IoCtx *ct, logfunc_pointer logwrapper, std::string filename, size_t object_sz) {
+bulkAioRead::bulkAioRead(librados::IoCtx* ct, logfunc_pointer logwrapper, CephFileRef* fileref) {
   /**
    * Constructor.
    *
    * @param ct                Rados IoContext object
    * @param logfunc_pointer   Pointer to the function that will be used for logging
-   * @param filename          Name of the file (not ceph object!) that is supposed to be read
-   * @param object_sz         Maximum size of the ceph objects that the file is split into
+   * @param fileref           Ceph file reference
    *
    */
   context = ct;
-  object_size = object_sz;
-  file_name = filename;
+  file_ref = fileref;
   log_func = logwrapper;
 }
 
@@ -57,7 +55,7 @@ int bulkAioRead::addRequest(size_t obj_idx, char* out_buf, size_t size, off64_t 
     auto &buf = buffers.back();
     op_data.ceph_read_op.read(offset, size, &buf.bl, &buf.rc);
   } catch (std::bad_alloc&) {
-   log_func((char*)"Memory allocation failed while reading file %s", file_name.c_str());
+   log_func((char*)"Memory allocation failed while reading file %s", file_ref->name.c_str());
    return -ENOMEM;
   }
   return 0;
@@ -82,14 +80,14 @@ int bulkAioRead::submit_and_wait_for_complete() {
     int sp_bytes_written;
     sp_bytes_written = snprintf(object_suffix, sizeof(object_suffix), ".%016zx", obj_idx);
     if (sp_bytes_written >= (int) sizeof(object_suffix)) {
-      log_func((char*)"Can not fit object suffix into buffer for file %s -- too big\n", file_name.c_str());
+      log_func((char*)"Can not fit object suffix into buffer for file %s -- too big\n", file_ref->name.c_str());
       return -EFBIG;
     }
 
     try {
-      obj_name =  file_name + std::string(object_suffix);
+      obj_name =  file_ref->name + std::string(object_suffix);
     } catch (std::bad_alloc&) {
-      log_func((char*)"Can not create object string for file %s)", file_name.c_str());
+      log_func((char*)"Can not create object string for file %s)", file_ref->name.c_str());
       return -ENOMEM;
     }
     context->aio_operate(obj_name, op_data.second.cmpl, &op_data.second.ceph_read_op, 0);
@@ -99,7 +97,7 @@ int bulkAioRead::submit_and_wait_for_complete() {
     op_data.second.cmpl.wait_for_complete();
     int rval = op_data.second.cmpl.get_return_value();
     if (rval < 0) {
-      log_func((char*)"Read of the object %ld for file %s failed", op_data.first, file_name.c_str());
+      log_func((char*)"Read of the object %ld for file %s failed", op_data.first, file_ref->name.c_str());
       return rval;
     }
   }
@@ -150,9 +148,10 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
 
   size_t start_block, last_block, buf_pos, chunk_len, chunk_start, req_len;
   char *buf_ptr;
+  size_t object_size = file_ref->objectSize;
 
   if (req_size == 0) {
-    log_func((char*)"Zero-length read request for file %s, probably client error", file_name.c_str());
+    log_func((char*)"Zero-length read request for file %s, probably client error", file_ref->name.c_str());
     return 0;
   }
 
@@ -174,7 +173,7 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
     }
     buf_pos += chunk_len;
     if (buf_pos > req_size) {
-      log_func((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu) of file %s\n", buf_pos, offset, req_size, file_name.c_str());
+      log_func((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu) of file %s\n", buf_pos, offset, req_size, file_ref->name.c_str());
       return -EINVAL;
     }
     buf_ptr += chunk_len;

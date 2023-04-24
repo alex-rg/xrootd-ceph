@@ -31,13 +31,13 @@
 
 #include <sys/types.h>
 #include <stdarg.h>
+#include <string>
 #include <dirent.h>
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysXAttr.hh>
 
+#include "XrdSys/XrdSysPthread.hh"
 #include "XrdOuc/XrdOucIOVec.hh"
-
-#include "XrdCephBulkAioRead.hh"
 
 class XrdSfsAio;
 typedef void(AioCB)(XrdSfsAio*, size_t);
@@ -81,5 +81,35 @@ int ceph_posix_unlink(XrdOucEnv* env, const char *pathname);
 DIR* ceph_posix_opendir(XrdOucEnv* env, const char *pathname);
 int ceph_posix_readdir(DIR* dirp, char *buff, int blen);
 int ceph_posix_closedir(DIR *dirp);
+
+/// small structs to store file metadata
+struct CephFile {
+  std::string name;
+  std::string pool;
+  std::string userId;
+  unsigned int nbStripes;
+  unsigned long long stripeUnit;
+  unsigned long long objectSize;
+};
+
+struct CephFileRef : CephFile {
+  int flags;
+  mode_t mode;
+  uint64_t offset;
+  // This mutex protects against parallel updates of the stats.
+  XrdSysMutex statsMutex;
+  uint64_t maxOffsetWritten;
+  uint64_t bytesAsyncWritePending;
+  uint64_t bytesWritten;
+  unsigned rdcount;
+  unsigned wrcount;
+  unsigned asyncRdStartCount;
+  unsigned asyncRdCompletionCount;
+  unsigned asyncWrStartCount;
+  unsigned asyncWrCompletionCount;
+  ::timeval lastAsyncSubmission;
+  double longestAsyncWriteTime;
+  double longestCallbackInvocation;
+};
 
 #endif // __XRD_CEPH_POSIX__

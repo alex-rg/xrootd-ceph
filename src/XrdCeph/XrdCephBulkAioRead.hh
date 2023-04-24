@@ -4,6 +4,8 @@
 #include <tuple>
 #include <rados/librados.hpp>
 
+#include "XrdCephPosix.hh"
+
 
 class bulkAioRead {
   //typedef std::tuple<ceph::bufferlist*, char*, int*> ReadOpData;
@@ -23,7 +25,7 @@ class bulkAioRead {
    * (i.e. something like `bulkAioRead rop = bulkAioRead(...);` will not work, use `bulkAioRead rop(...);` instead).
    */ 
   public:
-  bulkAioRead(librados::IoCtx *ct, logfunc_pointer ptr, std::string filename, size_t object_size);
+  bulkAioRead(librados::IoCtx* ct, logfunc_pointer ptr, CephFileRef* fileref);
   ~bulkAioRead();
 
   void clear();
@@ -85,7 +87,6 @@ class bulkAioRead {
 
   std::map<size_t, CephOpData> operations;
 
-  std::string file_name;
   logfunc_pointer log_func; 
-  size_t object_size;
+  CephFileRef* file_ref;
 };

@@ -54,36 +54,7 @@
 
 #include "XrdCeph/XrdCephPosix.hh"
 #include "XrdCeph/XrdCephOss.hh"
-
-/// small structs to store file metadata
-struct CephFile {
-  std::string name;
-  std::string pool;
-  std::string userId;
-  unsigned int nbStripes;
-  unsigned long long stripeUnit;
-  unsigned long long objectSize;
-};
-
-struct CephFileRef : CephFile {
-  int flags;
-  mode_t mode;
-  uint64_t offset;
-  // This mutex protects against parallel updates of the stats.
-  XrdSysMutex statsMutex;
-  uint64_t maxOffsetWritten;
-  uint64_t bytesAsyncWritePending;
-  uint64_t bytesWritten;
-  unsigned rdcount;
-  unsigned wrcount;
-  unsigned asyncRdStartCount;
-  unsigned asyncRdCompletionCount;
-  unsigned asyncWrStartCount;
-  unsigned asyncWrCompletionCount;
-  ::timeval lastAsyncSubmission;
-  double longestAsyncWriteTime;
-  double longestCallbackInvocation;
-};
+#include "XrdCeph/XrdCephBulkAioRead.hh"
 
 /// small struct for directory listing
 struct DirIterator {
@@ -920,7 +891,7 @@ ssize_t ceph_nonstriper_readv(int fd, XrdOucIOVec *readV, int n) {
 
     try {
       //Constructor can throw bad alloc
-      bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
+      bulkAioRead readOp(ioctx, logwrapper, fr);
 
       for (int i = 0; i < n; i++) {
         rc = readOp.read(readV[i].data, readV[i].size, readV[i].offset);
@@ -1023,7 +994,7 @@ ssize_t ceph_posix_nonstriper_pread(int fd, void *buf, size_t count, off64_t off
 
     try {
       //Constructor can throw bad alloc
-      bulkAioRead readOp(ioctx, logwrapper, fr->name, fr->objectSize);
+      bulkAioRead readOp(ioctx, logwrapper, fr);
       rc = readOp.read(buf, count, offset);
       if (rc < 0) {
         logwrapper( (char*)"Can not declare read request\n");

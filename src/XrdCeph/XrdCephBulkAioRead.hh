@@ -85,6 +85,7 @@ class bulkAioRead {
   librados::IoCtx* context;
   std::list<ReadOpData> buffers;
 
+  //map { <object_number> : <CephOpData> }
   std::map<size_t, CephOpData> operations;
 
   logfunc_pointer log_func; 

@@ -46,7 +46,7 @@ class bulkAioRead {
       }
     }
     ~CmplPtr() {
-      if (used && ! ptr->is_complete()) {
+      if (used) {
         this->wait_for_complete();
       }
       ptr->release();

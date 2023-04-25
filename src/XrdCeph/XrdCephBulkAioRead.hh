@@ -76,7 +76,7 @@ class bulkAioRead {
     ceph::bufferlist bl;
     char* out_buf;
     int rc;
-    ReadOpData(char* output_buf): out_buf(output_buf) {};
+    ReadOpData(char* output_buf): out_buf(output_buf), rc(-1) {};
   };
 
   

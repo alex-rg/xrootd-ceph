@@ -908,7 +908,7 @@ ssize_t ceph_nonstriper_readv(int fd, XrdOucIOVec *readV, int n) {
       wait_time = std::time(0) - wait_time;
       if (wait_time > g_cephAioWaitThresh) {
         logwrapper(
-          (char*)"Waiting for AIO results in readv for %s took %ld sedonds, too long!t\n",
+          (char*)"Waiting for AIO results in readv for %s took %ld seconds, too long!\n",
           fr->name.c_str(),
           wait_time
         );
@@ -1007,7 +1007,7 @@ ssize_t ceph_posix_nonstriper_pread(int fd, void *buf, size_t count, off64_t off
       wait_time = std::time(0) - wait_time;
       if (wait_time > g_cephAioWaitThresh) {
         logwrapper(
-          (char*)"Waiting for AIO results in pread for %s took %ld sedonds, too long!t\n",
+          (char*)"Waiting for AIO results in pread for %s took %ld seconds, too long!\n",
           fr->name.c_str(),
           wait_time
         );

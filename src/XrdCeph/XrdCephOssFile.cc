@@ -65,10 +65,12 @@ ssize_t XrdCephOssFile::Read(void *buff, off_t offset, size_t blen) {
   } else {
     retval = ceph_posix_nonstriper_pread(m_fd, buff, blen, offset);
     if (-ENOENT == retval || -ENOTSUP == retval) {
-      //This might be a sparse file, so let's try striper read
+      //This might be a sparse file or nbstripes > 1, so let's try striper read
       retval = ceph_posix_pread(m_fd, buff, blen, offset);
       if (retval >= 0) {
-        XrdCephEroute.Say("WARNING! The file seem to be sparse, this is not expected");
+        char err_str[100]; //99 symbols should be enough for the short message
+        snprintf(err_str, 100, "WARNING! The file (fd %d) seem to be sparse, this is not expected", m_fd);
+        XrdCephEroute.Say(err_str);
       }
     }
   }
@@ -95,10 +97,12 @@ ssize_t XrdCephOssFile::ReadV(XrdOucIOVec *readV, int n) {
   } else {
     retval = ceph_nonstriper_readv(m_fd, readV, n);
     if (-ENOENT == retval || -ENOTSUP == retval) {
-      //This might be a sparse file, so let's try striper read
+      //This might be a sparse file or nbstripes > 1, so let's try striper read
       retval = ceph_striper_readv(m_fd, readV, n);
       if (retval >= 0) {
-        XrdCephEroute.Say("WARNING! The file seem to be sparse, this is not expected");
+        char err_str[100]; //99 symbols should be enough for the short message
+        snprintf(err_str, 100, "WARNING! The file (fd %d) seem to be sparse, this is not expected", m_fd);
+        XrdCephEroute.Say(err_str);
       }
     }
   }

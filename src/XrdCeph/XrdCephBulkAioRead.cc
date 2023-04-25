@@ -90,7 +90,7 @@ int bulkAioRead::submit_and_wait_for_complete() {
       log_func((char*)"Can not create object string for file %s)", file_ref->name.c_str());
       return -ENOMEM;
     }
-    context->aio_operate(obj_name, op_data.second.cmpl, &op_data.second.ceph_read_op, 0);
+    context->aio_operate(obj_name, op_data.second.cmpl.use(), &op_data.second.ceph_read_op, 0);
   }
 
   for (auto &op_data: operations) {

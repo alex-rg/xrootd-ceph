@@ -37,7 +37,7 @@ class bulkAioRead {
   //Completion pointer
   class CmplPtr {
     librados::AioCompletion *ptr;
-    bool loaded = false;
+    bool used = false;
     public:
     CmplPtr() {
       ptr = librados::Rados::aio_create_completion();
@@ -46,7 +46,7 @@ class bulkAioRead {
       }
     }
     ~CmplPtr() {
-      if (loaded && ! ptr->is_complete()) {
+      if (used && ! ptr->is_complete()) {
         this->wait_for_complete();
       }
       ptr->release();
@@ -57,10 +57,10 @@ class bulkAioRead {
     int get_return_value() {
       return ptr->get_return_value();
     }
-    operator librados::AioCompletion*() {
+    librados::AioCompletion* use() {
       //If the object was converted to AioCompletion, we suppose it was passed to
       //the read operation, and therefore set the flag.
-      loaded = true;
+      used = true;
       return ptr;
     }
   };

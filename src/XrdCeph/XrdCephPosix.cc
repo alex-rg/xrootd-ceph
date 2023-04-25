@@ -53,7 +53,6 @@
 #include "XrdOuc/XrdOucIOVec.hh"
 
 #include "XrdCeph/XrdCephPosix.hh"
-#include "XrdCeph/XrdCephOss.hh"
 #include "XrdCeph/XrdCephBulkAioRead.hh"
 
 /// small struct for directory listing
@@ -86,6 +85,9 @@ std::vector<librados::Rados*> g_cluster;
 XrdSysMutex g_striper_mutex;
 /// index of current Striper/IoCtx to be used
 unsigned int g_cephPoolIdx = 0;
+///If aio read operation takes longer than this value, a warning
+///will be issued 
+unsigned int g_cephAioWaitThresh = 15;
 /// size of the Striper/IoCtx pool, defaults to 1
 /// may be overwritten in the configuration file
 /// (See XrdCephOss::configure)
@@ -904,7 +906,7 @@ ssize_t ceph_nonstriper_readv(int fd, XrdOucIOVec *readV, int n) {
       std::time_t wait_time = std::time(0);
       rc = readOp.submit_and_wait_for_complete();
       wait_time = std::time(0) - wait_time;
-      if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+      if (wait_time > g_cephAioWaitThresh) {
         logwrapper(
           (char*)"Waiting for AIO results in readv for %s took %ld sedonds, too long!t\n",
           fr->name.c_str(),
@@ -1003,7 +1005,7 @@ ssize_t ceph_posix_nonstriper_pread(int fd, void *buf, size_t count, off64_t off
       std::time_t wait_time = std::time(0);
       rc = readOp.submit_and_wait_for_complete();
       wait_time = std::time(0) - wait_time;
-      if (wait_time > XRDCEPH_AIO_WAIT_THRESH) {
+      if (wait_time > g_cephAioWaitThresh) {
         logwrapper(
           (char*)"Waiting for AIO results in pread for %s took %ld sedonds, too long!t\n",
           fr->name.c_str(),

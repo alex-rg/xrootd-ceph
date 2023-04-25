@@ -96,6 +96,14 @@ int bulkAioRead::submit_and_wait_for_complete() {
   for (auto &op_data: operations) {
     op_data.second.cmpl.wait_for_complete();
     int rval = op_data.second.cmpl.get_return_value();
+    /*
+     * Optimization is possible here: cancel all remaining read operations after the failure.
+     * One way to do so is the following: add context as an argument to the use method of CmplPtr.
+     * Then inside the class this pointer can be saved and used by the destructor to call
+     * `aio_cancel` (and probably `wait_for_complete`) before releasing the completion.
+     * Though one need to clarify whether it is necessary to cal `wait_for_complete` after
+     * `aio_cancel` (i.e. may the status variable/bufferlist still be written to or not).
+     */
     if (rval < 0) {
       log_func((char*)"Read of the object %ld for file %s failed", op_data.first, file_ref->name.c_str());
       return rval;

@@ -71,8 +71,6 @@ int bulkAioRead::submit_and_wait_for_complete() {
    *
    */
 
-  std::string obj_name;
-
   for (auto &op_data: operations) {
     size_t obj_idx = op_data.first;
     //16 bytes for object hex number, 1 for dot and 1 for null-terminator
@@ -84,6 +82,7 @@ int bulkAioRead::submit_and_wait_for_complete() {
       return -EFBIG;
     }
 
+    std::string obj_name;
     try {
       obj_name =  file_ref->name + std::string(object_suffix);
     } catch (std::bad_alloc&) {
@@ -98,7 +97,7 @@ int bulkAioRead::submit_and_wait_for_complete() {
     int rval = op_data.second.cmpl.get_return_value();
     /*
      * Optimization is possible here: cancel all remaining read operations after the failure.
-     * One way to do so is the following: add context as an argument to the use method of CmplPtr.
+     * One way to do so is the following: add context as an argument to the `use` method of CmplPtr.
      * Then inside the class this pointer can be saved and used by the destructor to call
      * `aio_cancel` (and probably `wait_for_complete`) before releasing the completion.
      * Though one need to clarify whether it is necessary to cal `wait_for_complete` after

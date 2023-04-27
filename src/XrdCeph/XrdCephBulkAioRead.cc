@@ -161,7 +161,7 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   char* const buf_start_ptr = (char*) out_buf;
 
   size_t object_size = file_ref->objectSize;
-  //The amount of bytes that we should read
+  //The amount of bytes that is yet to be read
   size_t to_read = req_size;
   //block means ceph object here
   size_t start_block = offset / object_size;

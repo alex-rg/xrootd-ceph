@@ -133,6 +133,8 @@ ssize_t bulkAioRead::get_results() {
     op_data.bl.begin().copy(op_data.bl.length(), op_data.out_buf);
     res += op_data.bl.length();
   }
+  //We should clear used completions to allow new operations
+  clear();
   return res;
 }
 

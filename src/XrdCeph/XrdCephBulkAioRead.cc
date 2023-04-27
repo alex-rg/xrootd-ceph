@@ -165,14 +165,13 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
   size_t to_read = req_size;
   //block means ceph object here
   size_t start_block = offset / object_size;
-  size_t last_block = (offset + to_read - 1) / object_size;
   size_t buf_pos = 0;
   size_t chunk_start = offset % object_size;
 
-  while (start_block <= last_block) {
+  while (to_read > 0) {
     size_t chunk_len = std::min(to_read, object_size - chunk_start);
 
-    if (buf_pos > req_size) {
+    if (buf_pos >= req_size) {
       log_func((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu) of file %s\n", buf_pos, offset, req_size, file_ref->name.c_str());
       return -EINVAL;
     }
@@ -187,6 +186,10 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
     
     start_block++;
     chunk_start = 0;
+    if (chunk_len > to_read) {
+      log_func((char*)"Internal bug! Read %lu bytes, more than expected %lu bytes for block (%lu, %lu) of file %s\n", chunk_len, to_read, offset, req_size, file_ref->name.c_str());
+      return -EINVAL;
+    }
     to_read = to_read - chunk_len;
   }
   return 0;

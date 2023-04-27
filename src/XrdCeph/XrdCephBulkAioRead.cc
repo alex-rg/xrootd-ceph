@@ -153,41 +153,41 @@ int bulkAioRead::read(void* out_buf, size_t req_size, off64_t offset) {
    *
    */
 
-  size_t start_block, last_block, buf_pos, chunk_len, chunk_start, req_len;
-  char *buf_ptr;
-  size_t object_size = file_ref->objectSize;
-
   if (req_size == 0) {
     log_func((char*)"Zero-length read request for file %s, probably client error", file_ref->name.c_str());
     return 0;
   }
 
-  req_len = req_size;
-  start_block = offset / object_size;
-  last_block = (offset + req_len - 1) / object_size;
-  buf_ptr = (char*) out_buf;
-  buf_pos = 0;
-  chunk_start = offset % object_size;
+  char* const buf_start_ptr = (char*) out_buf;
+
+  size_t object_size = file_ref->objectSize;
+  //The amount of bytes that we should read
+  size_t to_read = req_size;
+  //block means ceph object here
+  size_t start_block = offset / object_size;
+  size_t last_block = (offset + to_read - 1) / object_size;
+  size_t buf_pos = 0;
+  size_t chunk_start = offset % object_size;
 
   while (start_block <= last_block) {
-    chunk_len = std::min(req_len, object_size - chunk_start);
+    size_t chunk_len = std::min(to_read, object_size - chunk_start);
 
-    int rc;
-    rc = addRequest(start_block, buf_ptr, chunk_len, chunk_start);
-    if (rc < 0) {
-      log_func((char*)"Unable to submit async read request, rc=%d\n", rc);
-      return rc;
-    }
-    buf_pos += chunk_len;
     if (buf_pos > req_size) {
       log_func((char*)"Internal bug! Attempt to read %lu data for block (%lu, %lu) of file %s\n", buf_pos, offset, req_size, file_ref->name.c_str());
       return -EINVAL;
     }
-    buf_ptr += chunk_len;
 
+    int rc = addRequest(start_block, buf_start_ptr + buf_pos, chunk_len, chunk_start);
+    if (rc < 0) {
+      log_func((char*)"Unable to submit async read request, rc=%d\n", rc);
+      return rc;
+    }
+
+    buf_pos += chunk_len;
+    
     start_block++;
     chunk_start = 0;
-    req_len = req_len - chunk_len;
+    to_read = to_read - chunk_len;
   }
   return 0;
 }

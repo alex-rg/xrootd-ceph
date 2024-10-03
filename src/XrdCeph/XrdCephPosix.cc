@@ -661,7 +661,31 @@ int ceph_posix_open(XrdOucEnv* env, const char *pathname, int flags, mode_t mode
 
   } else {                              // Access mode is WRITE
     if (fileExists) {
+
       if (flags & O_TRUNC) {
+	//Check if there is a lock for this file. This probably means that it is being written to.
+	//In this case overwrite is refused.
+        librados::IoCtx *ioctx = getIoCtx(*fr);
+        if (0 == ioctx) {
+          return -EINVAL;
+        }
+	char attr_buf[64];
+	size_t name_length = strnlen(pathname, MAXPATHLEN+1)
+	char* obj_name = NULL;
+	try {
+	  obj_name = new char[name_length + 18];
+        } catch(std::bad_alloc&) {
+          logwrapper( (char*)"Can not allocate memory to check object's attribute\n");
+	  return -ENOMEM;
+	}
+	strnprintf(obj_name, pathname + 18, "%s.0000000000000000", pathname);
+	int res = ioctx->getxattr(obj_name, "lock.striper.lock", attr_buf, 64);
+	delete[] obj_name;
+	if (res > 0) {
+          logwrapper( (char*)"File %s is locked, overwrite refused\n", pathname);
+	  return -EEXIST;
+	}
+
         int rc = ceph_posix_unlink(env, pathname);
         if (rc < 0 && rc != -ENOENT) {
           return rc;

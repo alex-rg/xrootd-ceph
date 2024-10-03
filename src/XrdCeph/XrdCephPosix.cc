@@ -669,18 +669,11 @@ int ceph_posix_open(XrdOucEnv* env, const char *pathname, int flags, mode_t mode
         if (0 == ioctx) {
           return -EINVAL;
         }
-	char attr_buf[64];
-	size_t name_length = strnlen(pathname, MAXPATHLEN+1);
-	char* obj_name = NULL;
-	try {
-	  obj_name = new char[name_length + 18];
-        } catch(std::bad_alloc&) {
-          logwrapper( (char*)"Can not allocate memory to check object's attribute\n");
-	  return -ENOMEM;
-	}
-	snprintf(obj_name, name_length + 18, "%s.0000000000000000", pathname);
-	int res = ioctx->getxattr(obj_name, "lock.striper.lock", attr_buf, 64);
-	delete[] obj_name;
+
+	std::string obj_name = std::string(pathname) + std::string(".0000000000000000");
+	ceph::bufferlist tmp_buf;
+
+	int res = ioctx->getxattr(obj_name, "lock.striper.lock", tmp_buf);
 	if (res > 0) {
           logwrapper( (char*)"File %s is locked, overwrite refused\n", pathname);
 	  return -EEXIST;

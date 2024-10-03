@@ -678,7 +678,7 @@ int ceph_posix_open(XrdOucEnv* env, const char *pathname, int flags, mode_t mode
           logwrapper( (char*)"Can not allocate memory to check object's attribute\n");
 	  return -ENOMEM;
 	}
-	snprintf(obj_name, pathname + 18, "%s.0000000000000000", pathname);
+	snprintf(obj_name, name_length + 18, "%s.0000000000000000", pathname);
 	int res = ioctx->getxattr(obj_name, "lock.striper.lock", attr_buf, 64);
 	delete[] obj_name;
 	if (res > 0) {

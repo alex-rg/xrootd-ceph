@@ -617,52 +617,6 @@ void ceph_posix_set_logfunc(void (*logfunc) (char *, va_list argp)) {
 
 static int ceph_posix_internal_truncate(const CephFile &file, unsigned long long size);
 
-/*
-
-struct XrdCephFileLock {
-  const std::string lock_ext = std::string(".XrdCeph_Exlcusive_lock");
-  CephFile fr;
-  std::string obj_name;
-  std::string cookie;
-
-  XrdCephFileLock(const CephFile file) {
-
-    fr = file;
-    obj_name = fr.name + lock_ext;
-
-    char host[128];
-    gethostname(host, MAX_HOST_NAME);
-    cookie = std::string(host);  
-  }
-
-  int acquire() {
-
-    librados::IoCtx *ioctx = getIoCtx(fr);
-    if (0 == ioctx) {
-      return -EINVAL;
-    }
-
-    struct timeval lock_lifetime;
-    lock_lifetime.tv_sec = 3600*5;
-    lock_lifetime.tv_usec = 0;
-
-    int rc = ioctx->lock_exclusive(obj_name, XrdCeph_object_lock, cookie, "", &lock_lifetime, 0);
-    return rc;
-  }
-
-  int release() {
-    librados::IoCtx *ioctx = getIoCtx(fr);
-    if (0 == ioctx) {
-      return -EINVAL;
-    }
-
-    int rc = ioctx->remove(obj_name);
-
-    return rc;
-  }
-};
-*/
-
 /**
  * * brief ceph_posix_open function opens a file for read or write
  * * details This function either:

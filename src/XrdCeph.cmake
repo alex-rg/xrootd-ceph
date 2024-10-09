@@ -46,7 +46,8 @@ add_library(
   XrdCeph/XrdCephOss.cc       XrdCeph/XrdCephOss.hh
   XrdCeph/XrdCephOssFile.cc   XrdCeph/XrdCephOssFile.hh
   XrdCeph/XrdCephOssDir.cc    XrdCeph/XrdCephOssDir.hh
-  XrdCeph/XrdCephBulkAioRead.cc XrdCeph/XrdCephBulkAioRead.hh)
+  XrdCeph/XrdCephBulkAioRead.cc XrdCeph/XrdCephBulkAioRead.hh
+  XrdCeph/XrdCephFileLock.cc XrdCeph/XrdCephFileLock.hh)
 
 target_link_libraries(
   ${LIB_XRD_CEPH}
